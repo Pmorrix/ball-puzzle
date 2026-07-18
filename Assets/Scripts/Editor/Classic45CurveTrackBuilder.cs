@@ -12,14 +12,20 @@ public static class Classic45CurveTrackBuilder
 {
     private const string RootFolder = "Assets/Art/ClassicReferenceTrack/Curve45";
     private const string MeshFolder = RootFolder + "/Meshes";
+    private const string Curve90RootFolder = "Assets/Art/ClassicReferenceTrack/Curve90";
+    private const string Curve90MeshFolder = Curve90RootFolder + "/Meshes";
     private const string ScenePath = "Assets/Scenes/SampleScene.unity";
+    private const string PiecesScenePath = "Assets/Scenes/PiecesCircuit.unity";
     private const string WoodMaterialPath = "Assets/Art/ClassicReferenceTrack/Materials/ClassicReferenceWood.mat";
     private const string MetalMaterialPath = "Assets/Art/ClassicReferenceTrack/Materials/ClassicReferenceMetal.mat";
     private const string TrackRootName = "45 Degree Curve Classic Reference";
+    private const string Curve90RootName = "90 Degree Curve Classic Reference";
 
     private const float CenterRadius = 5f;
-    private const float ArcAngle = 45f;
-    private const int ArcSegments = 32;
+    private const float Curve45Angle = 45f;
+    private const int Curve45Segments = 32;
+    private const float Curve90Angle = 90f;
+    private const int Curve90Segments = 64;
     private const int ConnectorArcSegments = 8;
     private const float BodyWidth = 2.35f;
     private const float LaneWidth = 1.88f;
@@ -31,10 +37,14 @@ public static class Classic45CurveTrackBuilder
     private const float RailHeight = BendStartHeight + RailBendRadius;
 
     private static string activeMeshFolder = MeshFolder;
+    private static float activeArcAngle = Curve45Angle;
+    private static int activeArcSegments = Curve45Segments;
 
     [MenuItem("Tools/Ball Puzzle/Create Classic 45 Degree Curve In Scene")]
     public static void CreateClassic45DegreeCurve()
     {
+        activeArcAngle = Curve45Angle;
+        activeArcSegments = Curve45Segments;
         EnsureFolder("Assets/Art");
         EnsureFolder("Assets/Art/ClassicReferenceTrack");
         EnsureFolder(RootFolder);
@@ -70,9 +80,75 @@ public static class Classic45CurveTrackBuilder
         Debug.Log("Created modular classic 45-degree curve: " + rootName);
     }
 
+    [MenuItem("Tools/Ball Puzzle/Create Classic 90 Degree Curve In Pieces Circuit")]
+    public static void CreateClassic90DegreeCurveInPiecesCircuit()
+    {
+        Scene activeScene = SceneManager.GetActiveScene();
+        if (activeScene.path != PiecesScenePath)
+        {
+            Debug.LogError("Open PiecesCircuit before creating the classic 90-degree curve.");
+            return;
+        }
+
+        GameObject raceRoad = GameObject.Find("RaceRoad");
+        if (raceRoad == null)
+        {
+            Debug.LogError("PiecesCircuit has no RaceRoad root.");
+            return;
+        }
+
+        Transform existingCurve = raceRoad.transform.Find(Curve90RootName);
+        if (existingCurve != null)
+        {
+            Selection.activeGameObject = existingCurve.gameObject;
+            Debug.Log("The classic 90-degree curve already exists in PiecesCircuit.");
+            return;
+        }
+
+        Material woodMaterial = AssetDatabase.LoadAssetAtPath<Material>(WoodMaterialPath);
+        Material metalMaterial = AssetDatabase.LoadAssetAtPath<Material>(MetalMaterialPath);
+        if (woodMaterial == null || metalMaterial == null)
+        {
+            Debug.LogError("The classic reference materials are missing.");
+            return;
+        }
+
+        EnsureFolder("Assets/Art");
+        EnsureFolder("Assets/Art/ClassicReferenceTrack");
+        EnsureFolder(Curve90RootFolder);
+        EnsureFolder(Curve90MeshFolder);
+
+        activeArcAngle = Curve90Angle;
+        activeArcSegments = Curve90Segments;
+        activeMeshFolder = Curve90MeshFolder;
+
+        try
+        {
+            GameObject root = BuildHierarchy(Curve90RootName, woodMaterial, metalMaterial);
+            root.transform.SetParent(raceRoad.transform, false);
+            root.transform.localPosition = new Vector3(-8.8f, 0f, -2.5f);
+            root.transform.localRotation = Quaternion.identity;
+
+            EditorSceneManager.MarkSceneDirty(activeScene);
+            EditorSceneManager.SaveScene(activeScene);
+            AssetDatabase.SaveAssets();
+            AssetDatabase.Refresh();
+            Selection.activeGameObject = root;
+            Debug.Log("Created modular classic 90-degree curve in PiecesCircuit.");
+        }
+        finally
+        {
+            activeArcAngle = Curve45Angle;
+            activeArcSegments = Curve45Segments;
+            activeMeshFolder = MeshFolder;
+        }
+    }
+
     [MenuItem("Tools/Ball Puzzle/Refresh Selected Classic 45 Degree Curve Meshes")]
     public static void RefreshSelectedClassic45DegreeCurveMeshes()
     {
+        activeArcAngle = Curve45Angle;
+        activeArcSegments = Curve45Segments;
         GameObject root = GetSelectedRoot();
         if (root == null || !root.name.StartsWith(TrackRootName, System.StringComparison.Ordinal))
         {
@@ -133,15 +209,15 @@ public static class Classic45CurveTrackBuilder
         CreateMeshPart(root.transform, "Outer Curved Metal Guard", GetRailMesh(1f), metalMaterial, Vector3.zero, true);
 
         float startAngle = GetMountInsetAngle();
-        float endAngle = ArcAngle * Mathf.Deg2Rad - startAngle;
+        float endAngle = activeArcAngle * Mathf.Deg2Rad - startAngle;
         CreateMount(root.transform, "Inner Start Rail Mount", -1f, startAngle, metalMaterial);
         CreateMount(root.transform, "Inner End Rail Mount", -1f, endAngle, metalMaterial);
         CreateMount(root.transform, "Outer Start Rail Mount", 1f, startAngle, metalMaterial);
         CreateMount(root.transform, "Outer End Rail Mount", 1f, endAngle, metalMaterial);
 
         CreateConnection(root.transform, "Start Connection", PointAt(CenterRadius, 0f, 0f), Quaternion.identity);
-        float endRadians = ArcAngle * Mathf.Deg2Rad;
-        CreateConnection(root.transform, "End Connection", PointAt(CenterRadius, endRadians, 0f), Quaternion.Euler(0f, -ArcAngle, 0f));
+        float endRadians = activeArcAngle * Mathf.Deg2Rad;
+        CreateConnection(root.transform, "End Connection", PointAt(CenterRadius, endRadians, 0f), Quaternion.Euler(0f, -activeArcAngle, 0f));
 
         return root;
     }
@@ -184,12 +260,12 @@ public static class Classic45CurveTrackBuilder
         const float halfTop = 1.10f;
         const int sectionSize = 6;
 
-        List<Vector3> vertices = new List<Vector3>((ArcSegments + 1) * sectionSize + 2);
+        List<Vector3> vertices = new List<Vector3>((activeArcSegments + 1) * sectionSize + 2);
         List<Vector2> uvs = new List<Vector2>(vertices.Capacity);
-        for (int segment = 0; segment <= ArcSegments; segment++)
+        for (int segment = 0; segment <= activeArcSegments; segment++)
         {
-            float t = segment / (float)ArcSegments;
-            float angle = t * ArcAngle * Mathf.Deg2Rad;
+            float t = segment / (float)activeArcSegments;
+            float angle = t * activeArcAngle * Mathf.Deg2Rad;
             AddSectionVertex(vertices, uvs, CenterRadius - halfBottom, angle, 0f, 0f, t);
             AddSectionVertex(vertices, uvs, CenterRadius + halfBottom, angle, 0f, 1f, t);
             AddSectionVertex(vertices, uvs, CenterRadius - halfBottom, angle, 0.10f, 0f, t);
@@ -199,7 +275,7 @@ public static class Classic45CurveTrackBuilder
         }
 
         List<int> triangles = new List<int>();
-        for (int segment = 0; segment < ArcSegments; segment++)
+        for (int segment = 0; segment < activeArcSegments; segment++)
         {
             int a = segment * sectionSize;
             int b = (segment + 1) * sectionSize;
@@ -215,10 +291,10 @@ public static class Classic45CurveTrackBuilder
         vertices.Add(PointAt(CenterRadius, 0f, 0.19f));
         uvs.Add(new Vector2(0.5f, 0f));
         int endCenter = vertices.Count;
-        vertices.Add(PointAt(CenterRadius, ArcAngle * Mathf.Deg2Rad, 0.19f));
+        vertices.Add(PointAt(CenterRadius, activeArcAngle * Mathf.Deg2Rad, 0.19f));
         uvs.Add(new Vector2(0.5f, 1f));
         int[] boundary = { 0, 1, 3, 5, 4, 2 };
-        int endStart = ArcSegments * sectionSize;
+        int endStart = activeArcSegments * sectionSize;
         for (int i = 0; i < boundary.Length; i++)
         {
             int next = (i + 1) % boundary.Length;
@@ -245,13 +321,13 @@ public static class Classic45CurveTrackBuilder
         string path = activeMeshFolder + "/ConcaveCurvedWoodenLane.mesh";
         const int crossSegments = 28;
         float startAngle = 0f;
-        float endAngle = ArcAngle * Mathf.Deg2Rad;
+        float endAngle = activeArcAngle * Mathf.Deg2Rad;
 
-        List<Vector3> vertices = new List<Vector3>((ArcSegments + 3) * (crossSegments + 1));
+        List<Vector3> vertices = new List<Vector3>((activeArcSegments + 3) * (crossSegments + 1));
         List<Vector2> uvs = new List<Vector2>(vertices.Capacity);
-        for (int segment = 0; segment <= ArcSegments; segment++)
+        for (int segment = 0; segment <= activeArcSegments; segment++)
         {
-            float lengthT = segment / (float)ArcSegments;
+            float lengthT = segment / (float)activeArcSegments;
             float angle = Mathf.Lerp(startAngle, endAngle, lengthT);
             for (int cross = 0; cross <= crossSegments; cross++)
             {
@@ -265,7 +341,7 @@ public static class Classic45CurveTrackBuilder
 
         List<int> triangles = new List<int>();
         int rowSize = crossSegments + 1;
-        for (int segment = 0; segment < ArcSegments; segment++)
+        for (int segment = 0; segment < activeArcSegments; segment++)
         {
             for (int cross = 0; cross < crossSegments; cross++)
             {
@@ -297,7 +373,7 @@ public static class Classic45CurveTrackBuilder
             uvs.Add(new Vector2(t, 1f));
         }
 
-        int endTop = ArcSegments * rowSize;
+        int endTop = activeArcSegments * rowSize;
         for (int cross = 0; cross < crossSegments; cross++)
         {
             triangles.Add(cross);
@@ -325,16 +401,16 @@ public static class Classic45CurveTrackBuilder
         string path = activeMeshFolder + "/" + name + ".mesh";
         float center = CenterRadius + side * 1.02f;
         float startAngle = 0f;
-        float endAngle = ArcAngle * Mathf.Deg2Rad;
+        float endAngle = activeArcAngle * Mathf.Deg2Rad;
         const float bottomHalfWidth = 0.15f;
         const float topHalfWidth = 0.135f;
         const int sectionSize = 4;
 
-        List<Vector3> vertices = new List<Vector3>((ArcSegments + 1) * sectionSize + 2);
+        List<Vector3> vertices = new List<Vector3>((activeArcSegments + 1) * sectionSize + 2);
         List<Vector2> uvs = new List<Vector2>(vertices.Capacity);
-        for (int segment = 0; segment <= ArcSegments; segment++)
+        for (int segment = 0; segment <= activeArcSegments; segment++)
         {
-            float t = segment / (float)ArcSegments;
+            float t = segment / (float)activeArcSegments;
             float angle = Mathf.Lerp(startAngle, endAngle, t);
             AddSectionVertex(vertices, uvs, center - bottomHalfWidth, angle, -0.26f, 0f, t);
             AddSectionVertex(vertices, uvs, center + bottomHalfWidth, angle, -0.26f, 1f, t);
@@ -343,7 +419,7 @@ public static class Classic45CurveTrackBuilder
         }
 
         List<int> triangles = new List<int>();
-        for (int segment = 0; segment < ArcSegments; segment++)
+        for (int segment = 0; segment < activeArcSegments; segment++)
         {
             int a = segment * sectionSize;
             int b = (segment + 1) * sectionSize;
@@ -360,7 +436,7 @@ public static class Classic45CurveTrackBuilder
         vertices.Add(PointAt(center, endAngle, 0f));
         uvs.Add(new Vector2(0.5f, 1f));
         int[] boundary = { 0, 1, 3, 2 };
-        int endStart = ArcSegments * sectionSize;
+        int endStart = activeArcSegments * sectionSize;
         for (int i = 0; i < boundary.Length; i++)
         {
             int next = (i + 1) % boundary.Length;
@@ -393,7 +469,7 @@ public static class Classic45CurveTrackBuilder
         const int bendSegments = 12;
         float radius = CenterRadius + side * RailOffset;
         float supportStart = GetMountInsetAngle();
-        float supportEnd = ArcAngle * Mathf.Deg2Rad - supportStart;
+        float supportEnd = activeArcAngle * Mathf.Deg2Rad - supportStart;
         float bendAngle = RailBendRadius / radius;
 
         for (int segment = 0; segment <= ConnectorArcSegments; segment++)
@@ -413,9 +489,9 @@ public static class Classic45CurveTrackBuilder
 
         float mainStart = supportStart + bendAngle;
         float mainEnd = supportEnd - bendAngle;
-        for (int segment = 1; segment < ArcSegments; segment++)
+        for (int segment = 1; segment < activeArcSegments; segment++)
         {
-            float t = segment / (float)ArcSegments;
+            float t = segment / (float)activeArcSegments;
             points.Add(PointAt(radius, Mathf.Lerp(mainStart, mainEnd, t), RailHeight));
         }
         points.Add(PointAt(radius, mainEnd, RailHeight));
@@ -432,7 +508,7 @@ public static class Classic45CurveTrackBuilder
         for (int segment = 1; segment <= ConnectorArcSegments; segment++)
         {
             float t = segment / (float)ConnectorArcSegments;
-            points.Add(PointAt(radius, Mathf.Lerp(supportEnd, ArcAngle * Mathf.Deg2Rad, t), SocketEndHeight));
+            points.Add(PointAt(radius, Mathf.Lerp(supportEnd, activeArcAngle * Mathf.Deg2Rad, t), SocketEndHeight));
         }
         return points;
     }

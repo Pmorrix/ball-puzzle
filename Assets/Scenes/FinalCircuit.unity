@@ -11063,6 +11063,7 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 1692069352}
+  - component: {fileID: 1692069353}
   m_Layer: 0
   m_Name: RaceRoad
   m_TagString: Untagged
@@ -11096,6 +11097,20 @@ Transform:
   - {fileID: 1399050959}
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 10, y: 237.48, z: 0}
+--- !u!114 &1692069353
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1692069351}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 05b7e14c4bb54a84b78d71f8d6d791b1, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::TrackMouseRotator
+  degreesPerPixel: 0.15
+  maxTilt: 35
 --- !u!1 &1730587873
 GameObject:
   m_ObjectHideFlags: 0
