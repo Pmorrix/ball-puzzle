@@ -1,6 +1,8 @@
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.EventSystems;
 using UnityEngine.InputSystem;
+using UnityEngine.UI;
 
 [DisallowMultipleComponent]
 public sealed class BallPuzzleLevelController : MonoBehaviour
@@ -39,6 +41,25 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
     [SerializeField, Min(1f)] private float maximumTestDuration = 18f;
     [SerializeField, Min(0.1f)] private float stoppedDuration = 2f;
 
+    [Header("UI")]
+    [SerializeField] private GameObject buildControlsPanel;
+    [SerializeField] private GameObject testingControlsPanel;
+    [SerializeField] private GameObject resultPanel;
+    [SerializeField] private Button straightButton;
+    [SerializeField] private Button curveButton;
+    [SerializeField] private Button testButton;
+    [SerializeField] private Button resetButton;
+    [SerializeField] private Button stopButton;
+    [SerializeField] private Button retryButton;
+    [SerializeField] private Button editButton;
+    [SerializeField] private Button resultResetButton;
+    [SerializeField] private Text straightButtonLabel;
+    [SerializeField] private Text curveButtonLabel;
+    [SerializeField] private Text testingLabel;
+    [SerializeField] private Text statusLabel;
+    [SerializeField] private Text resultTitleLabel;
+    [SerializeField] private Text resultMessageLabel;
+
     private readonly List<CircuitPiece> placedPieces = new List<CircuitPiece>();
     private readonly Dictionary<CircuitPiece, bool[]> connectedConnectors =
         new Dictionary<CircuitPiece, bool[]>();
@@ -57,12 +78,6 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
     private float stoppedAt = -1f;
     private Vector3 prizeInitialScale;
 
-    private GUIStyle titleStyle;
-    private GUIStyle labelStyle;
-    private GUIStyle statusStyle;
-    private GUIStyle buttonStyle;
-    private GUIStyle overlayStyle;
-
     private void Awake()
     {
         if (buildCamera == null)
@@ -71,12 +86,15 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         }
 
         if (buildCamera == null || straightPiecePrefab == null || curve45RightPiecePrefab == null ||
-            ball == null || ballSpawnPoint == null || prize == null || startAnchor == null)
+            ball == null || ballSpawnPoint == null || prize == null || startAnchor == null ||
+            !HasRequiredUi())
         {
-            Debug.LogError("Level01: faltan referencias de escena o prefabs.", this);
+            Debug.LogError("Level01: faltan referencias de escena, prefabs o Canvas UI.", this);
             enabled = false;
             return;
         }
+
+        WireUiEvents();
 
         GameObject piecesRoot = new GameObject("Placed Puzzle Pieces");
         piecesRoot.transform.SetParent(transform, false);
@@ -86,6 +104,12 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         curveRemaining = availableCurves;
         prizeInitialScale = prize.localScale;
         ResetBallForBuild();
+        RefreshUi();
+    }
+
+    private void OnDestroy()
+    {
+        UnwireUiEvents();
     }
 
     private void Update()
@@ -100,6 +124,8 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         {
             UpdateBallTest();
         }
+
+        RefreshUi();
     }
 
     private void UpdateBuildMode()
@@ -111,6 +137,11 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
 
         Mouse mouse = Mouse.current;
         if (mouse == null)
+        {
+            return;
+        }
+
+        if (EventSystem.current != null && EventSystem.current.IsPointerOverGameObject())
         {
             return;
         }
@@ -583,134 +614,81 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         return Vector2.Distance(new Vector2(first.x, first.z), new Vector2(second.x, second.z));
     }
 
-    private void OnGUI()
+    private bool HasRequiredUi()
     {
-        EnsureGuiStyles();
-
-        GUI.Box(new Rect(12f, 12f, Screen.width - 24f, 76f), GUIContent.none);
-        GUI.Label(new Rect(28f, 20f, 330f, 30f), "BALL PUZZLE — NIVEL 01", titleStyle);
-        GUI.Label(new Rect(28f, 50f, 500f, 26f),
-            "AZUL: caída de la bola  |  NARANJA: objetivo. Conecta ambos puntos.", labelStyle);
-
-        if (state == LevelState.Build)
-        {
-            DrawBuildControls();
-        }
-        else if (state == LevelState.Testing)
-        {
-            DrawTestingControls();
-        }
-        else
-        {
-            DrawResultOverlay();
-        }
-
-        GUI.Box(new Rect(12f, Screen.height - 58f, Screen.width - 24f, 46f), status, statusStyle);
+        return buildControlsPanel != null && testingControlsPanel != null && resultPanel != null &&
+               straightButton != null && curveButton != null && testButton != null &&
+               resetButton != null && stopButton != null && retryButton != null &&
+               editButton != null && resultResetButton != null && straightButtonLabel != null &&
+               curveButtonLabel != null && testingLabel != null && statusLabel != null &&
+               resultTitleLabel != null && resultMessageLabel != null;
     }
 
-    private void DrawBuildControls()
+    private void WireUiEvents()
     {
-        float buttonY = 25f;
-        float right = Screen.width - 28f;
-
-        GUI.enabled = pendingPiece == null && straightRemaining > 0;
-        if (GUI.Button(new Rect(right - 620f, buttonY, 145f, 42f),
-                "RECTA  ×" + straightRemaining, buttonStyle))
-        {
-            BeginPlacement(straightPiecePrefab);
-        }
-
-        GUI.enabled = pendingPiece == null && curveRemaining > 0;
-        if (GUI.Button(new Rect(right - 465f, buttonY, 155f, 42f),
-                "CURVA 45°  ×" + curveRemaining, buttonStyle))
-        {
-            BeginPlacement(curve45RightPiecePrefab);
-        }
-
-        GUI.enabled = pendingPiece == null && placedPieces.Count > 0;
-        if (GUI.Button(new Rect(right - 300f, buttonY, 130f, 42f), "PROBAR", buttonStyle))
-        {
-            StartBallTest();
-        }
-
-        GUI.enabled = placedPieces.Count > 0 || pendingPiece != null;
-        if (GUI.Button(new Rect(right - 160f, buttonY, 160f, 42f), "REINICIAR", buttonStyle))
-        {
-            ResetLayout();
-        }
-        GUI.enabled = true;
+        straightButton.onClick.AddListener(SelectStraightPiece);
+        curveButton.onClick.AddListener(SelectCurvePiece);
+        testButton.onClick.AddListener(StartBallTest);
+        resetButton.onClick.AddListener(ResetLayout);
+        stopButton.onClick.AddListener(ReturnToBuild);
+        retryButton.onClick.AddListener(RetryTest);
+        editButton.onClick.AddListener(ReturnToBuild);
+        resultResetButton.onClick.AddListener(ResetLayout);
     }
 
-    private void DrawTestingControls()
+    private void UnwireUiEvents()
     {
-        float elapsed = Time.time - testStartedAt;
-        GUI.Label(new Rect(Screen.width - 410f, 31f, 190f, 30f),
-            "PRUEBA  " + elapsed.ToString("0.0") + " s", titleStyle);
-        if (GUI.Button(new Rect(Screen.width - 205f, 25f, 175f, 42f),
-                "DETENER Y EDITAR", buttonStyle))
-        {
-            ReturnToBuild();
-        }
+        if (straightButton != null) straightButton.onClick.RemoveListener(SelectStraightPiece);
+        if (curveButton != null) curveButton.onClick.RemoveListener(SelectCurvePiece);
+        if (testButton != null) testButton.onClick.RemoveListener(StartBallTest);
+        if (resetButton != null) resetButton.onClick.RemoveListener(ResetLayout);
+        if (stopButton != null) stopButton.onClick.RemoveListener(ReturnToBuild);
+        if (retryButton != null) retryButton.onClick.RemoveListener(RetryTest);
+        if (editButton != null) editButton.onClick.RemoveListener(ReturnToBuild);
+        if (resultResetButton != null) resultResetButton.onClick.RemoveListener(ResetLayout);
     }
 
-    private void DrawResultOverlay()
+    private void SelectStraightPiece()
     {
-        float width = 480f;
-        float height = 230f;
-        Rect panel = new Rect((Screen.width - width) * 0.5f, (Screen.height - height) * 0.5f, width, height);
-        GUI.Box(panel, GUIContent.none, overlayStyle);
-        GUI.Label(new Rect(panel.x + 30f, panel.y + 28f, width - 60f, 42f),
-            state == LevelState.Success ? "¡NIVEL COMPLETADO!" : "PRUEBA FALLIDA", titleStyle);
-        GUI.Label(new Rect(panel.x + 30f, panel.y + 80f, width - 60f, 40f), status, labelStyle);
-
-        if (GUI.Button(new Rect(panel.x + 30f, panel.y + 145f, 130f, 48f), "REINTENTAR", buttonStyle))
-        {
-            RetryTest();
-        }
-        if (GUI.Button(new Rect(panel.x + 175f, panel.y + 145f, 130f, 48f), "EDITAR", buttonStyle))
-        {
-            ReturnToBuild();
-        }
-        if (GUI.Button(new Rect(panel.x + 320f, panel.y + 145f, 130f, 48f), "REINICIAR", buttonStyle))
-        {
-            ResetLayout();
-        }
+        BeginPlacement(straightPiecePrefab);
     }
 
-    private void EnsureGuiStyles()
+    private void SelectCurvePiece()
     {
-        if (titleStyle != null)
+        BeginPlacement(curve45RightPiecePrefab);
+    }
+
+    private void RefreshUi()
+    {
+        bool isBuilding = state == LevelState.Build;
+        bool isTesting = state == LevelState.Testing;
+        bool isShowingResult = state == LevelState.Failure || state == LevelState.Success;
+
+        buildControlsPanel.SetActive(isBuilding);
+        testingControlsPanel.SetActive(isTesting);
+        resultPanel.SetActive(isShowingResult);
+
+        straightButtonLabel.text = "RECTA  ×" + straightRemaining;
+        curveButtonLabel.text = "CURVA 45°  ×" + curveRemaining;
+        straightButton.interactable = pendingPiece == null && straightRemaining > 0;
+        curveButton.interactable = pendingPiece == null && curveRemaining > 0;
+        testButton.interactable = pendingPiece == null && placedPieces.Count > 0;
+        resetButton.interactable = placedPieces.Count > 0 || pendingPiece != null;
+
+        if (isTesting)
         {
-            return;
+            testingLabel.text = "PRUEBA  " + (Time.time - testStartedAt).ToString("0.0") + " s";
         }
 
-        titleStyle = new GUIStyle(GUI.skin.label)
+        if (isShowingResult)
         {
-            fontSize = 20,
-            fontStyle = FontStyle.Bold,
-            normal = { textColor = Color.white }
-        };
-        labelStyle = new GUIStyle(GUI.skin.label)
-        {
-            fontSize = 14,
-            normal = { textColor = new Color(0.88f, 0.92f, 0.96f) }
-        };
-        statusStyle = new GUIStyle(GUI.skin.box)
-        {
-            alignment = TextAnchor.MiddleLeft,
-            fontSize = 15,
-            padding = new RectOffset(16, 16, 8, 8),
-            normal = { textColor = Color.white }
-        };
-        buttonStyle = new GUIStyle(GUI.skin.button)
-        {
-            fontSize = 14,
-            fontStyle = FontStyle.Bold
-        };
-        overlayStyle = new GUIStyle(GUI.skin.box)
-        {
-            normal = { background = GUI.skin.box.normal.background }
-        };
+            resultTitleLabel.text = state == LevelState.Success
+                ? "¡NIVEL COMPLETADO!"
+                : "PRUEBA FALLIDA";
+            resultMessageLabel.text = status;
+        }
+
+        statusLabel.text = status;
     }
 
 #if UNITY_EDITOR
@@ -730,6 +708,44 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         ballSpawnPoint = newBallSpawnPoint;
         prize = newPrize;
         startAnchor = newStartAnchor;
+    }
+
+    public void ConfigureUiForEditor(
+        GameObject newBuildControlsPanel,
+        GameObject newTestingControlsPanel,
+        GameObject newResultPanel,
+        Button newStraightButton,
+        Button newCurveButton,
+        Button newTestButton,
+        Button newResetButton,
+        Button newStopButton,
+        Button newRetryButton,
+        Button newEditButton,
+        Button newResultResetButton,
+        Text newStraightButtonLabel,
+        Text newCurveButtonLabel,
+        Text newTestingLabel,
+        Text newStatusLabel,
+        Text newResultTitleLabel,
+        Text newResultMessageLabel)
+    {
+        buildControlsPanel = newBuildControlsPanel;
+        testingControlsPanel = newTestingControlsPanel;
+        resultPanel = newResultPanel;
+        straightButton = newStraightButton;
+        curveButton = newCurveButton;
+        testButton = newTestButton;
+        resetButton = newResetButton;
+        stopButton = newStopButton;
+        retryButton = newRetryButton;
+        editButton = newEditButton;
+        resultResetButton = newResultResetButton;
+        straightButtonLabel = newStraightButtonLabel;
+        curveButtonLabel = newCurveButtonLabel;
+        testingLabel = newTestingLabel;
+        statusLabel = newStatusLabel;
+        resultTitleLabel = newResultTitleLabel;
+        resultMessageLabel = newResultMessageLabel;
     }
 #endif
 }

@@ -3,8 +3,11 @@ using System.Linq;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
+using UnityEngine.EventSystems;
+using UnityEngine.InputSystem.UI;
 using UnityEngine.Rendering;
 using UnityEngine.SceneManagement;
+using UnityEngine.UI;
 
 public static class BallPuzzleLevel01Builder
 {
@@ -15,6 +18,27 @@ public static class BallPuzzleLevel01Builder
     private const string MaterialsFolder = ArtFolder + "/Materials";
     private const string MeshesFolder = ArtFolder + "/Meshes";
     private const string GridMeshPath = MeshesFolder + "/Level01Grid.asset";
+
+    private sealed class LevelUiReferences
+    {
+        public GameObject BuildControlsPanel;
+        public GameObject TestingControlsPanel;
+        public GameObject ResultPanel;
+        public Button StraightButton;
+        public Button CurveButton;
+        public Button TestButton;
+        public Button ResetButton;
+        public Button StopButton;
+        public Button RetryButton;
+        public Button EditButton;
+        public Button ResultResetButton;
+        public Text StraightButtonLabel;
+        public Text CurveButtonLabel;
+        public Text TestingLabel;
+        public Text StatusLabel;
+        public Text ResultTitleLabel;
+        public Text ResultMessageLabel;
+    }
 
     [MenuItem("Tools/Ball Puzzle/Build Level 01")]
     public static void BuildLevel01()
@@ -90,6 +114,9 @@ public static class BallPuzzleLevel01Builder
             prize,
             startAnchor);
 
+        LevelUiReferences ui = CreateLevelUi();
+        ConfigureControllerUi(controller, ui);
+
         EditorSceneManager.MarkSceneDirty(scene);
         if (!EditorSceneManager.SaveScene(scene, ScenePath))
         {
@@ -101,6 +128,42 @@ public static class BallPuzzleLevel01Builder
         AssetDatabase.Refresh();
         Selection.activeGameObject = controllerObject;
         Debug.Log("Level01 creada en " + ScenePath);
+    }
+
+    [MenuItem("Tools/Ball Puzzle/Install Level 01 Canvas UI")]
+    public static void InstallLevel01CanvasUi()
+    {
+        Scene scene = EditorSceneManager.OpenScene(ScenePath, OpenSceneMode.Single);
+        BallPuzzleLevelController controller = Object.FindFirstObjectByType<BallPuzzleLevelController>();
+        if (controller == null)
+        {
+            throw new System.InvalidOperationException(
+                "Level01 no contiene un BallPuzzleLevelController.");
+        }
+
+        GameObject existingUi = GameObject.Find("Level UI");
+        if (existingUi != null)
+        {
+            Object.DestroyImmediate(existingUi);
+        }
+
+        EventSystem existingEventSystem = Object.FindFirstObjectByType<EventSystem>();
+        if (existingEventSystem != null)
+        {
+            Object.DestroyImmediate(existingEventSystem.gameObject);
+        }
+
+        LevelUiReferences ui = CreateLevelUi();
+        ConfigureControllerUi(controller, ui);
+        EditorUtility.SetDirty(controller);
+        EditorSceneManager.MarkSceneDirty(scene);
+        if (!EditorSceneManager.SaveScene(scene, ScenePath))
+        {
+            throw new System.InvalidOperationException("No se pudo guardar " + ScenePath);
+        }
+
+        Selection.activeGameObject = ui.BuildControlsPanel.transform.root.gameObject;
+        Debug.Log("Canvas UI instalada en " + ScenePath);
     }
 
     private static Camera CreateCamera()
@@ -132,6 +195,392 @@ public static class BallPuzzleLevel01Builder
         RenderSettings.ambientSkyColor = new Color(0.25f, 0.34f, 0.50f);
         RenderSettings.ambientEquatorColor = new Color(0.09f, 0.14f, 0.22f);
         RenderSettings.ambientGroundColor = new Color(0.015f, 0.022f, 0.035f);
+    }
+
+    private static LevelUiReferences CreateLevelUi()
+    {
+        Font font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        if (font == null)
+        {
+            throw new System.InvalidOperationException("No se pudo cargar la fuente UI integrada.");
+        }
+
+        GameObject canvasObject = new GameObject(
+            "Level UI",
+            typeof(RectTransform),
+            typeof(Canvas),
+            typeof(CanvasScaler),
+            typeof(GraphicRaycaster));
+        Canvas canvas = canvasObject.GetComponent<Canvas>();
+        canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+        canvas.sortingOrder = 10;
+
+        CanvasScaler scaler = canvasObject.GetComponent<CanvasScaler>();
+        scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+        scaler.referenceResolution = new Vector2(1920f, 1080f);
+        scaler.screenMatchMode = CanvasScaler.ScreenMatchMode.MatchWidthOrHeight;
+        scaler.matchWidthOrHeight = 0.5f;
+
+        GameObject eventSystemObject = new GameObject(
+            "EventSystem",
+            typeof(EventSystem),
+            typeof(InputSystemUIInputModule));
+        eventSystemObject.transform.SetAsLastSibling();
+
+        Color panelColor = new Color(0.018f, 0.035f, 0.065f, 0.92f);
+        Color buttonColor = new Color(0.07f, 0.20f, 0.32f, 0.98f);
+        Color textColor = new Color(0.91f, 0.95f, 1f, 1f);
+
+        GameObject topBar = CreatePanel(
+            "Top Bar",
+            canvasObject.transform,
+            panelColor,
+            new Vector2(0f, 1f),
+            new Vector2(1f, 1f),
+            new Vector2(0.5f, 1f),
+            new Vector2(0f, -12f),
+            new Vector2(-24f, 76f));
+
+        CreateText(
+            "Title",
+            topBar.transform,
+            "BALL PUZZLE — NIVEL 01",
+            font,
+            22,
+            FontStyle.Bold,
+            TextAnchor.MiddleLeft,
+            Color.white,
+            new Vector2(0f, 1f),
+            new Vector2(0f, 1f),
+            new Vector2(0f, 1f),
+            new Vector2(16f, -7f),
+            new Vector2(430f, 30f));
+        CreateText(
+            "Legend",
+            topBar.transform,
+            "AZUL: caída de la bola  |  NARANJA: objetivo. Conecta ambos puntos.",
+            font,
+            14,
+            FontStyle.Normal,
+            TextAnchor.MiddleLeft,
+            textColor,
+            new Vector2(0f, 1f),
+            new Vector2(0f, 1f),
+            new Vector2(0f, 1f),
+            new Vector2(16f, -40f),
+            new Vector2(650f, 25f));
+
+        GameObject buildPanel = CreateLayoutPanel(
+            "Build Controls",
+            topBar.transform,
+            new Vector2(1f, 1f),
+            new Vector2(1f, 1f),
+            new Vector2(1f, 1f),
+            new Vector2(-14f, -13f),
+            new Vector2(690f, 50f));
+        Text straightLabel;
+        Button straightButton = CreateButton(
+            "Straight Button", buildPanel.transform, "RECTA  ×2", font, buttonColor, 150f, out straightLabel);
+        Text curveLabel;
+        Button curveButton = CreateButton(
+            "Curve Button", buildPanel.transform, "CURVA 45°  ×1", font, buttonColor, 170f, out curveLabel);
+        Text unusedLabel;
+        Button testButton = CreateButton(
+            "Test Button", buildPanel.transform, "PROBAR", font, buttonColor, 135f, out unusedLabel);
+        Button resetButton = CreateButton(
+            "Reset Button", buildPanel.transform, "REINICIAR", font, buttonColor, 155f, out unusedLabel);
+
+        GameObject testingPanel = CreateLayoutPanel(
+            "Testing Controls",
+            topBar.transform,
+            new Vector2(1f, 1f),
+            new Vector2(1f, 1f),
+            new Vector2(1f, 1f),
+            new Vector2(-14f, -13f),
+            new Vector2(430f, 50f));
+        Text testingLabel = CreateText(
+            "Testing Label",
+            testingPanel.transform,
+            "PRUEBA  0.0 s",
+            font,
+            18,
+            FontStyle.Bold,
+            TextAnchor.MiddleCenter,
+            Color.white,
+            Vector2.zero,
+            Vector2.one,
+            new Vector2(0.5f, 0.5f),
+            Vector2.zero,
+            new Vector2(210f, 46f));
+        LayoutElement testingLayout = testingLabel.gameObject.AddComponent<LayoutElement>();
+        testingLayout.preferredWidth = 210f;
+        testingLayout.preferredHeight = 46f;
+        Button stopButton = CreateButton(
+            "Stop Button", testingPanel.transform, "DETENER Y EDITAR", font, buttonColor, 200f, out unusedLabel);
+
+        GameObject statusBar = CreatePanel(
+            "Status Bar",
+            canvasObject.transform,
+            panelColor,
+            new Vector2(0f, 0f),
+            new Vector2(1f, 0f),
+            new Vector2(0.5f, 0f),
+            new Vector2(0f, 12f),
+            new Vector2(-24f, 48f));
+        Text statusLabel = CreateText(
+            "Status",
+            statusBar.transform,
+            "Elige una pieza y conéctala al punto azul.",
+            font,
+            15,
+            FontStyle.Normal,
+            TextAnchor.MiddleLeft,
+            Color.white,
+            Vector2.zero,
+            Vector2.one,
+            new Vector2(0.5f, 0.5f),
+            Vector2.zero,
+            new Vector2(-32f, -10f));
+
+        GameObject resultPanel = CreatePanel(
+            "Result Panel",
+            canvasObject.transform,
+            new Color(0.018f, 0.035f, 0.065f, 0.97f),
+            new Vector2(0.5f, 0.5f),
+            new Vector2(0.5f, 0.5f),
+            new Vector2(0.5f, 0.5f),
+            Vector2.zero,
+            new Vector2(520f, 250f));
+        Text resultTitle = CreateText(
+            "Result Title",
+            resultPanel.transform,
+            "PRUEBA FINALIZADA",
+            font,
+            24,
+            FontStyle.Bold,
+            TextAnchor.MiddleCenter,
+            Color.white,
+            new Vector2(0.5f, 1f),
+            new Vector2(0.5f, 1f),
+            new Vector2(0.5f, 1f),
+            new Vector2(0f, -24f),
+            new Vector2(460f, 42f));
+        Text resultMessage = CreateText(
+            "Result Message",
+            resultPanel.transform,
+            "Resultado de la prueba.",
+            font,
+            16,
+            FontStyle.Normal,
+            TextAnchor.MiddleCenter,
+            textColor,
+            new Vector2(0.5f, 1f),
+            new Vector2(0.5f, 1f),
+            new Vector2(0.5f, 1f),
+            new Vector2(0f, -82f),
+            new Vector2(460f, 54f));
+        GameObject resultButtons = CreateLayoutPanel(
+            "Result Buttons",
+            resultPanel.transform,
+            new Vector2(0.5f, 0f),
+            new Vector2(0.5f, 0f),
+            new Vector2(0.5f, 0f),
+            new Vector2(0f, 24f),
+            new Vector2(470f, 52f));
+        Button retryButton = CreateButton(
+            "Retry Button", resultButtons.transform, "REINTENTAR", font, buttonColor, 145f, out unusedLabel);
+        Button editButton = CreateButton(
+            "Edit Button", resultButtons.transform, "EDITAR", font, buttonColor, 145f, out unusedLabel);
+        Button resultResetButton = CreateButton(
+            "Result Reset Button", resultButtons.transform, "REINICIAR", font, buttonColor, 145f, out unusedLabel);
+
+        testingPanel.SetActive(false);
+        resultPanel.SetActive(false);
+
+        return new LevelUiReferences
+        {
+            BuildControlsPanel = buildPanel,
+            TestingControlsPanel = testingPanel,
+            ResultPanel = resultPanel,
+            StraightButton = straightButton,
+            CurveButton = curveButton,
+            TestButton = testButton,
+            ResetButton = resetButton,
+            StopButton = stopButton,
+            RetryButton = retryButton,
+            EditButton = editButton,
+            ResultResetButton = resultResetButton,
+            StraightButtonLabel = straightLabel,
+            CurveButtonLabel = curveLabel,
+            TestingLabel = testingLabel,
+            StatusLabel = statusLabel,
+            ResultTitleLabel = resultTitle,
+            ResultMessageLabel = resultMessage
+        };
+    }
+
+    private static void ConfigureControllerUi(
+        BallPuzzleLevelController controller,
+        LevelUiReferences ui)
+    {
+        controller.ConfigureUiForEditor(
+            ui.BuildControlsPanel,
+            ui.TestingControlsPanel,
+            ui.ResultPanel,
+            ui.StraightButton,
+            ui.CurveButton,
+            ui.TestButton,
+            ui.ResetButton,
+            ui.StopButton,
+            ui.RetryButton,
+            ui.EditButton,
+            ui.ResultResetButton,
+            ui.StraightButtonLabel,
+            ui.CurveButtonLabel,
+            ui.TestingLabel,
+            ui.StatusLabel,
+            ui.ResultTitleLabel,
+            ui.ResultMessageLabel);
+    }
+
+    private static GameObject CreatePanel(
+        string name,
+        Transform parent,
+        Color color,
+        Vector2 anchorMin,
+        Vector2 anchorMax,
+        Vector2 pivot,
+        Vector2 anchoredPosition,
+        Vector2 sizeDelta)
+    {
+        GameObject panel = new GameObject(name, typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
+        panel.transform.SetParent(parent, false);
+        ConfigureRect(panel.GetComponent<RectTransform>(), anchorMin, anchorMax, pivot, anchoredPosition, sizeDelta);
+        Image image = panel.GetComponent<Image>();
+        image.color = color;
+        image.raycastTarget = false;
+        return panel;
+    }
+
+    private static GameObject CreateLayoutPanel(
+        string name,
+        Transform parent,
+        Vector2 anchorMin,
+        Vector2 anchorMax,
+        Vector2 pivot,
+        Vector2 anchoredPosition,
+        Vector2 sizeDelta)
+    {
+        GameObject panel = new GameObject(name, typeof(RectTransform), typeof(HorizontalLayoutGroup));
+        panel.transform.SetParent(parent, false);
+        ConfigureRect(panel.GetComponent<RectTransform>(), anchorMin, anchorMax, pivot, anchoredPosition, sizeDelta);
+        HorizontalLayoutGroup layout = panel.GetComponent<HorizontalLayoutGroup>();
+        layout.spacing = 10f;
+        layout.childAlignment = TextAnchor.MiddleRight;
+        layout.childControlWidth = true;
+        layout.childControlHeight = true;
+        layout.childForceExpandWidth = false;
+        layout.childForceExpandHeight = false;
+        return panel;
+    }
+
+    private static Button CreateButton(
+        string name,
+        Transform parent,
+        string label,
+        Font font,
+        Color normalColor,
+        float width,
+        out Text labelText)
+    {
+        GameObject buttonObject = new GameObject(
+            name,
+            typeof(RectTransform),
+            typeof(CanvasRenderer),
+            typeof(Image),
+            typeof(Button),
+            typeof(LayoutElement));
+        buttonObject.transform.SetParent(parent, false);
+
+        Image image = buttonObject.GetComponent<Image>();
+        image.color = normalColor;
+        Button button = buttonObject.GetComponent<Button>();
+        button.targetGraphic = image;
+        ColorBlock colors = button.colors;
+        colors.normalColor = normalColor;
+        colors.highlightedColor = new Color(0.10f, 0.38f, 0.58f, 1f);
+        colors.pressedColor = new Color(0.04f, 0.13f, 0.22f, 1f);
+        colors.selectedColor = colors.highlightedColor;
+        colors.disabledColor = new Color(0.10f, 0.12f, 0.15f, 0.75f);
+        button.colors = colors;
+
+        LayoutElement layout = buttonObject.GetComponent<LayoutElement>();
+        layout.preferredWidth = width;
+        layout.preferredHeight = 46f;
+
+        labelText = CreateText(
+            "Label",
+            buttonObject.transform,
+            label,
+            font,
+            15,
+            FontStyle.Bold,
+            TextAnchor.MiddleCenter,
+            Color.white,
+            Vector2.zero,
+            Vector2.one,
+            new Vector2(0.5f, 0.5f),
+            Vector2.zero,
+            Vector2.zero);
+        labelText.raycastTarget = false;
+        return button;
+    }
+
+    private static Text CreateText(
+        string name,
+        Transform parent,
+        string value,
+        Font font,
+        int fontSize,
+        FontStyle fontStyle,
+        TextAnchor alignment,
+        Color color,
+        Vector2 anchorMin,
+        Vector2 anchorMax,
+        Vector2 pivot,
+        Vector2 anchoredPosition,
+        Vector2 sizeDelta)
+    {
+        GameObject textObject = new GameObject(name, typeof(RectTransform), typeof(CanvasRenderer), typeof(Text));
+        textObject.transform.SetParent(parent, false);
+        ConfigureRect(textObject.GetComponent<RectTransform>(), anchorMin, anchorMax, pivot, anchoredPosition, sizeDelta);
+        Text text = textObject.GetComponent<Text>();
+        text.text = value;
+        text.font = font;
+        text.fontSize = fontSize;
+        text.fontStyle = fontStyle;
+        text.alignment = alignment;
+        text.color = color;
+        text.raycastTarget = false;
+        text.horizontalOverflow = HorizontalWrapMode.Wrap;
+        text.verticalOverflow = VerticalWrapMode.Truncate;
+        return text;
+    }
+
+    private static void ConfigureRect(
+        RectTransform rect,
+        Vector2 anchorMin,
+        Vector2 anchorMax,
+        Vector2 pivot,
+        Vector2 anchoredPosition,
+        Vector2 sizeDelta)
+    {
+        rect.anchorMin = anchorMin;
+        rect.anchorMax = anchorMax;
+        rect.pivot = pivot;
+        rect.anchoredPosition = anchoredPosition;
+        rect.sizeDelta = sizeDelta;
+        rect.localScale = Vector3.one;
     }
 
     private static void CreateGameSpace(
