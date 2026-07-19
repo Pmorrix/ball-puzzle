@@ -523,7 +523,7 @@ public static class BallPuzzleLevel01Builder
             buttonObject.transform,
             label,
             font,
-            15,
+            22,
             FontStyle.Bold,
             TextAnchor.MiddleCenter,
             Color.white,
