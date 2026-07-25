@@ -4,14 +4,15 @@ public enum CircuitPieceType
 {
     Start,
     Straight,
-    Curve45Right
+    Curve45Right,
+    HalfStraight
 }
 
 [DisallowMultipleComponent]
 public sealed class CircuitPiece : MonoBehaviour
 {
     [SerializeField] private CircuitPieceType pieceType;
-    [SerializeField] private string displayName = "Pieza";
+    [SerializeField] private string displayName = "Piece";
     [SerializeField] private Transform[] connectors;
     [SerializeField, Min(0)] private int incomingConnectorIndex;
 

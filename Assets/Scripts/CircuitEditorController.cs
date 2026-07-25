@@ -33,7 +33,7 @@ public sealed class CircuitEditorController : MonoBehaviour
     private int pendingTargetConnector = -1;
     private bool pendingHasValidSnap;
     private bool awaitingPieceValidation;
-    private string status = "Arrastra una pieza desde la zona superior.";
+    private string status = "Drag a piece from the top area.";
 
     private GUIStyle titleStyle;
     private GUIStyle paletteLabelStyle;
@@ -222,7 +222,7 @@ public sealed class CircuitEditorController : MonoBehaviour
         CircuitPiece startPiece = Instantiate(startPiecePrefab, Vector3.zero, Quaternion.identity, placedPiecesRoot);
         startPiece.name = "Start Piece";
         RegisterPlacedPiece(startPiece);
-        status = "Salida colocada. Arrastra la primera pieza desde arriba.";
+        status = "Exit placed. Drag the first piece from above.";
     }
 
     private void BeginDrag(CircuitPiece prefab)
@@ -238,7 +238,7 @@ public sealed class CircuitEditorController : MonoBehaviour
         pendingTargetPiece = null;
         pendingTargetConnector = -1;
         pendingHasValidSnap = false;
-        status = "Acerca la pieza a un conector libre y suelta el ratón.";
+        status = "Move the piece near an open connector and release the mouse.";
     }
 
     private void UpdateDraggedPiece(Vector2 mousePosition)
@@ -348,12 +348,12 @@ public sealed class CircuitEditorController : MonoBehaviour
         {
             Destroy(pendingPiece.gameObject);
             pendingPiece = null;
-            status = "La pieza no encajaba. Arrástrala de nuevo hasta que aparezca en verde.";
+            status = "The piece did not fit. Drag it again until it turns green.";
             return;
         }
 
         awaitingPieceValidation = true;
-        status = "Encaje correcto. Pulsa VALIDAR PIEZA para fijarla.";
+        status = "Good fit. Press CONFIRM PIECE to lock it.";
     }
 
     private void ConfirmPendingPiece()
@@ -379,7 +379,7 @@ public sealed class CircuitEditorController : MonoBehaviour
         pendingTargetConnector = -1;
         pendingHasValidSnap = false;
         awaitingPieceValidation = false;
-        status = "Pieza validada. Arrastra la siguiente o valida el circuito.";
+        status = "Piece confirmed. Drag the next one or validate the circuit.";
     }
 
     private void CancelPendingPiece()
@@ -394,21 +394,21 @@ public sealed class CircuitEditorController : MonoBehaviour
         pendingTargetConnector = -1;
         pendingHasValidSnap = false;
         awaitingPieceValidation = false;
-        status = "Colocación cancelada. Arrastra otra pieza desde arriba.";
+        status = "Placement cancelled. Drag another piece from above.";
     }
 
     private void ValidateCircuit()
     {
         if (awaitingPieceValidation)
         {
-            status = "Primero valida o cancela la pieza pendiente.";
+            status = "First validate or cancel the pending piece.";
             return;
         }
 
         int openConnectors = CountOpenConnectors();
         if (placedPieces.Count < 3)
         {
-            status = "El circuito todavía necesita más piezas.";
+            status = "The circuit still needs more pieces.";
         }
         else if (openConnectors > 0)
         {
@@ -416,7 +416,7 @@ public sealed class CircuitEditorController : MonoBehaviour
         }
         else
         {
-            status = "Circuito validado: todos los tramos están conectados.";
+            status = "Circuit validated: all tracks are connected.";
         }
     }
 
@@ -560,16 +560,16 @@ public sealed class CircuitEditorController : MonoBehaviour
         EnsureGuiStyles();
 
         float palettePixels = Screen.height * PaletteHeight;
-        GUI.Label(new Rect(18f, 7f, 360f, 34f), "PIEZAS DISPONIBLES", titleStyle);
-        GUI.Label(new Rect(0f, palettePixels - 34f, Screen.width * 0.5f, 28f), "RECTA", paletteLabelStyle);
-        GUI.Label(new Rect(Screen.width * 0.5f, palettePixels - 34f, Screen.width * 0.5f, 28f), "CURVA 45° DERECHA", paletteLabelStyle);
+        GUI.Label(new Rect(18f, 7f, 360f, 34f), "AVAILABLE PIECES", titleStyle);
+        GUI.Label(new Rect(0f, palettePixels - 34f, Screen.width * 0.5f, 28f), "STRAIGHT", paletteLabelStyle);
+        GUI.Label(new Rect(Screen.width * 0.5f, palettePixels - 34f, Screen.width * 0.5f, 28f), "RIGHT 45° CURVE", paletteLabelStyle);
 
         GUI.Box(new Rect(12f, Screen.height - 58f, Screen.width - 24f, 46f), status, statusStyle);
 
         float buttonY = Screen.height - 112f;
         if (awaitingPieceValidation)
         {
-            if (GUI.Button(new Rect(Screen.width - 360f, buttonY, 170f, 44f), "VALIDAR PIEZA", buttonStyle))
+            if (GUI.Button(new Rect(Screen.width - 360f, buttonY, 170f, 44f), "CONFIRM PIECE", buttonStyle))
             {
                 ConfirmPendingPiece();
             }
@@ -579,7 +579,7 @@ public sealed class CircuitEditorController : MonoBehaviour
                 CancelPendingPiece();
             }
         }
-        else if (GUI.Button(new Rect(Screen.width - 230f, buttonY, 200f, 44f), "VALIDAR CIRCUITO", buttonStyle))
+        else if (GUI.Button(new Rect(Screen.width - 230f, buttonY, 200f, 44f), "VALIDATE CIRCUIT", buttonStyle))
         {
             ValidateCircuit();
         }

@@ -3,6 +3,7 @@ using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.InputSystem;
 using UnityEngine.UI;
+using TMPro;
 
 [DisallowMultipleComponent]
 public sealed class BallPuzzleLevelController : MonoBehaviour
@@ -22,6 +23,7 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
     [SerializeField] private Camera buildCamera;
     [SerializeField] private CircuitPiece straightPiecePrefab;
     [SerializeField] private CircuitPiece curve45RightPiecePrefab;
+    [SerializeField] private CircuitPiece halfStraightPiecePrefab;
     [SerializeField] private Rigidbody ball;
     [SerializeField] private Transform ballSpawnPoint;
     [SerializeField] private Transform prize;
@@ -29,7 +31,8 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
 
     [Header("Level 01")]
     [SerializeField, Min(0)] private int availableStraights = 2;
-    [SerializeField, Min(0)] private int availableCurves = 1;
+    [SerializeField, Min(0)] private int availableCurves = 2;
+    [SerializeField, Min(0)] private int availableHalfStraights = 2;
     [SerializeField, Min(0.25f)] private float connectorSnapDistance = 2.25f;
     [SerializeField, Min(1f)] private float buildHalfSize = 16f;
     [SerializeField] private Vector2 buildAreaCenter = new Vector2(0f, 4f);
@@ -53,12 +56,18 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
     [SerializeField] private Button retryButton;
     [SerializeField] private Button editButton;
     [SerializeField] private Button resultResetButton;
-    [SerializeField] private Text straightButtonLabel;
-    [SerializeField] private Text curveButtonLabel;
-    [SerializeField] private Text testingLabel;
-    [SerializeField] private Text statusLabel;
-    [SerializeField] private Text resultTitleLabel;
-    [SerializeField] private Text resultMessageLabel;
+    [SerializeField] private TMP_Text straightButtonLabel;
+    [SerializeField] private TMP_Text curveButtonLabel;
+    [SerializeField] private TMP_Text testingLabel;
+    [SerializeField] private TMP_Text statusLabel;
+    [SerializeField] private TMP_Text inventoryStatusLabel;
+    [SerializeField] private TMP_Text paletteSummaryLabel;
+    [SerializeField] private TMP_Text resultTitleLabel;
+    [SerializeField] private TMP_Text resultMessageLabel;
+    [SerializeField] private PieceSelectionCard straightPieceCard;
+    [SerializeField] private PieceSelectionCard curve45PieceCard;
+    [SerializeField] private PieceSelectionCard halfStraightPieceCard;
+    [SerializeField] private PieceSelectionCard[] lockedPieceCards;
 
     private readonly List<CircuitPiece> placedPieces = new List<CircuitPiece>();
     private readonly Dictionary<CircuitPiece, bool[]> connectedConnectors =
@@ -72,8 +81,9 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
     private bool pendingHasValidSnap;
     private int straightRemaining;
     private int curveRemaining;
+    private int halfStraightRemaining;
     private LevelState state = LevelState.Build;
-    private string status = "Elige una pieza y conéctala al punto azul.";
+    private string status = "Choose a piece and connect it to the blue point.";
     private float testStartedAt;
     private float stoppedAt = -1f;
     private Vector3 prizeInitialScale;
@@ -86,6 +96,7 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         }
 
         if (buildCamera == null || straightPiecePrefab == null || curve45RightPiecePrefab == null ||
+            halfStraightPiecePrefab == null ||
             ball == null || ballSpawnPoint == null || prize == null || startAnchor == null ||
             !HasRequiredUi())
         {
@@ -94,6 +105,7 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
             return;
         }
 
+        ApplyPieceCardActiveStates();
         WireUiEvents();
 
         GameObject piecesRoot = new GameObject("Placed Puzzle Pieces");
@@ -102,6 +114,7 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
 
         straightRemaining = availableStraights;
         curveRemaining = availableCurves;
+        halfStraightRemaining = availableHalfStraights;
         prizeInitialScale = prize.localScale;
         ResetBallForBuild();
         RefreshUi();
@@ -171,8 +184,8 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         pendingPiece.name = prefab.DisplayName + " (pendiente)";
         pendingPiece.SetTint(new Color(0.92f, 0.34f, 0.25f, 1f));
         status = placedPieces.Count == 0
-            ? "Encaja la primera pieza en el punto azul y haz clic."
-            : "Acerca la pieza a un conector libre y haz clic. Botón derecho cancela.";
+            ? "Fit the first piece to the blue point and click."
+            : "Move the piece near an open connector and click. Right-click cancels.";
     }
 
     private void UpdatePendingPiece(Vector2 mousePosition)
@@ -300,7 +313,7 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
     {
         if (!pendingHasValidSnap || (!pendingUsesStartAnchor && pendingTargetPiece == null))
         {
-            status = "La pieza debe aparecer en verde antes de colocarla.";
+            status = "The piece must turn green before you place it.";
             return;
         }
 
@@ -325,7 +338,7 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         pendingTargetConnector = -1;
         pendingUsesStartAnchor = false;
         pendingHasValidSnap = false;
-        status = "Pieza colocada. Puedes continuar o pulsar PROBAR.";
+        status = "Piece placed. Continue or press TEST.";
     }
 
     private void CancelPendingPiece(bool updateStatus = true)
@@ -342,7 +355,7 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         pendingHasValidSnap = false;
         if (updateStatus)
         {
-            status = "Colocación cancelada.";
+            status = "Placement cancelled.";
         }
     }
 
@@ -350,12 +363,12 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
     {
         if (state != LevelState.Build || pendingPiece != null)
         {
-            status = "Termina o cancela la pieza pendiente antes de probar.";
+            status = "Finish or cancel the pending piece before testing.";
             return;
         }
         if (placedPieces.Count == 0)
         {
-            status = "Coloca al menos una pieza antes de probar.";
+            status = "Place at least one piece before testing.";
             return;
         }
 
@@ -373,7 +386,7 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         ball.isKinematic = false;
         ball.linearVelocity = ballSpawnPoint.forward * launchSpeed;
         ball.WakeUp();
-        status = "Prueba en marcha: la bola debe recoger el premio.";
+        status = "Test running: the ball must collect the prize.";
     }
 
     private void UpdateBallTest()
@@ -385,7 +398,7 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         }
         if (ball.position.y < fallHeight)
         {
-            FailTest("La bola cayó fuera del recorrido.");
+            FailTest("The ball fell off the track.");
             return;
         }
         if (Time.time - testStartedAt >= maximumTestDuration)
@@ -402,7 +415,7 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
             }
             else if (Time.time - stoppedAt >= stoppedDuration)
             {
-                FailTest("La bola se ha quedado detenida.");
+                FailTest("The ball has stopped.");
             }
         }
         else
@@ -422,7 +435,7 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
     {
         FreezeBall();
         state = LevelState.Success;
-        status = "¡Premio recogido! Nivel completado.";
+        status = "Prize collected! Level complete.";
         prize.localScale = prizeInitialScale * 1.35f;
     }
 
@@ -439,7 +452,7 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         ResetBallForBuild();
         prize.gameObject.SetActive(true);
         prize.localScale = prizeInitialScale;
-        status = "Ajusta el montaje y vuelve a pulsar PROBAR.";
+        status = "Adjust the layout and press TEST again.";
     }
 
     private void ResetLayout()
@@ -456,11 +469,12 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         connectedConnectors.Clear();
         straightRemaining = availableStraights;
         curveRemaining = availableCurves;
+        halfStraightRemaining = availableHalfStraights;
         state = LevelState.Build;
         ResetBallForBuild();
         prize.gameObject.SetActive(true);
         prize.localScale = prizeInitialScale;
-        status = "Montaje reiniciado. Conecta una pieza al punto azul.";
+        status = "Layout reset. Connect a piece to the blue point.";
     }
 
     private void FreezeBall()
@@ -588,18 +602,32 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
 
     private int GetRemainingCount(CircuitPiece prefab)
     {
-        return prefab.PieceType == CircuitPieceType.Straight ? straightRemaining : curveRemaining;
+        switch (prefab.PieceType)
+        {
+            case CircuitPieceType.Straight:
+                return straightRemaining;
+            case CircuitPieceType.Curve45Right:
+                return curveRemaining;
+            case CircuitPieceType.HalfStraight:
+                return halfStraightRemaining;
+            default:
+                return 0;
+        }
     }
 
     private void ConsumePiece(CircuitPiece piece)
     {
-        if (piece.PieceType == CircuitPieceType.Straight)
+        switch (piece.PieceType)
         {
-            straightRemaining = Mathf.Max(0, straightRemaining - 1);
-        }
-        else
-        {
-            curveRemaining = Mathf.Max(0, curveRemaining - 1);
+            case CircuitPieceType.Straight:
+                straightRemaining = Mathf.Max(0, straightRemaining - 1);
+                break;
+            case CircuitPieceType.Curve45Right:
+                curveRemaining = Mathf.Max(0, curveRemaining - 1);
+                break;
+            case CircuitPieceType.HalfStraight:
+                halfStraightRemaining = Mathf.Max(0, halfStraightRemaining - 1);
+                break;
         }
     }
 
@@ -621,13 +649,36 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
                resetButton != null && stopButton != null && retryButton != null &&
                editButton != null && resultResetButton != null && straightButtonLabel != null &&
                curveButtonLabel != null && testingLabel != null && statusLabel != null &&
-               resultTitleLabel != null && resultMessageLabel != null;
+               inventoryStatusLabel != null && paletteSummaryLabel != null &&
+               resultTitleLabel != null && resultMessageLabel != null &&
+               straightPieceCard != null && curve45PieceCard != null &&
+               halfStraightPieceCard != null && halfStraightPieceCard.Button != null &&
+               HasLockedPieceCards();
+    }
+
+    private bool HasLockedPieceCards()
+    {
+        if (lockedPieceCards == null || lockedPieceCards.Length == 0)
+        {
+            return false;
+        }
+
+        foreach (PieceSelectionCard card in lockedPieceCards)
+        {
+            if (card == null)
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private void WireUiEvents()
     {
         straightButton.onClick.AddListener(SelectStraightPiece);
         curveButton.onClick.AddListener(SelectCurvePiece);
+        halfStraightPieceCard.Button.onClick.AddListener(SelectHalfStraightPiece);
         testButton.onClick.AddListener(StartBallTest);
         resetButton.onClick.AddListener(ResetLayout);
         stopButton.onClick.AddListener(ReturnToBuild);
@@ -640,6 +691,10 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
     {
         if (straightButton != null) straightButton.onClick.RemoveListener(SelectStraightPiece);
         if (curveButton != null) curveButton.onClick.RemoveListener(SelectCurvePiece);
+        if (halfStraightPieceCard != null && halfStraightPieceCard.Button != null)
+        {
+            halfStraightPieceCard.Button.onClick.RemoveListener(SelectHalfStraightPiece);
+        }
         if (testButton != null) testButton.onClick.RemoveListener(StartBallTest);
         if (resetButton != null) resetButton.onClick.RemoveListener(ResetLayout);
         if (stopButton != null) stopButton.onClick.RemoveListener(ReturnToBuild);
@@ -650,16 +705,32 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
 
     private void SelectStraightPiece()
     {
-        BeginPlacement(straightPiecePrefab);
+        if (straightPieceCard.ActiveInPalette && !straightPieceCard.LockedInPalette)
+        {
+            BeginPlacement(straightPiecePrefab);
+        }
     }
 
     private void SelectCurvePiece()
     {
-        BeginPlacement(curve45RightPiecePrefab);
+        if (curve45PieceCard.ActiveInPalette && !curve45PieceCard.LockedInPalette)
+        {
+            BeginPlacement(curve45RightPiecePrefab);
+        }
+    }
+
+    private void SelectHalfStraightPiece()
+    {
+        if (halfStraightPieceCard.ActiveInPalette && !halfStraightPieceCard.LockedInPalette)
+        {
+            BeginPlacement(halfStraightPiecePrefab);
+        }
     }
 
     private void RefreshUi()
     {
+        ApplyPieceCardActiveStates();
+
         bool isBuilding = state == LevelState.Build;
         bool isTesting = state == LevelState.Testing;
         bool isShowingResult = state == LevelState.Failure || state == LevelState.Success;
@@ -667,28 +738,155 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         buildControlsPanel.SetActive(isBuilding);
         testingControlsPanel.SetActive(isTesting);
         resultPanel.SetActive(isShowingResult);
+        RefreshPaletteSummary();
 
-        straightButtonLabel.text = "RECTA  ×" + straightRemaining;
-        curveButtonLabel.text = "CURVA 45°  ×" + curveRemaining;
-        straightButton.interactable = pendingPiece == null && straightRemaining > 0;
-        curveButton.interactable = pendingPiece == null && curveRemaining > 0;
+        bool straightSelected = pendingPiece != null && pendingPiece.PieceType == CircuitPieceType.Straight;
+        bool curveSelected = pendingPiece != null && pendingPiece.PieceType == CircuitPieceType.Curve45Right;
+        bool halfStraightSelected = pendingPiece != null &&
+                                    pendingPiece.PieceType == CircuitPieceType.HalfStraight;
+        bool straightAvailable = straightPieceCard.ActiveInPalette &&
+                                 !straightPieceCard.LockedInPalette;
+        bool curveAvailable = curve45PieceCard.ActiveInPalette &&
+                              !curve45PieceCard.LockedInPalette;
+        bool halfStraightAvailable = halfStraightPieceCard.ActiveInPalette &&
+                                     !halfStraightPieceCard.LockedInPalette;
+        straightPieceCard.SetState(
+            straightAvailable,
+            straightAvailable && !straightSelected && straightRemaining > 0,
+            straightSelected,
+            straightRemaining);
+        curve45PieceCard.SetState(
+            curveAvailable,
+            curveAvailable && !curveSelected && curveRemaining > 0,
+            curveSelected,
+            curveRemaining);
+        halfStraightPieceCard.SetState(
+            halfStraightAvailable,
+            halfStraightAvailable && !halfStraightSelected && halfStraightRemaining > 0,
+            halfStraightSelected,
+            halfStraightRemaining);
+
+        foreach (PieceSelectionCard card in lockedPieceCards)
+        {
+            if (card == halfStraightPieceCard)
+            {
+                continue;
+            }
+
+            bool unlocked = !card.LockedInPalette;
+            card.SetState(unlocked, false, false, unlocked ? 1 : 0);
+        }
+
         testButton.interactable = pendingPiece == null && placedPieces.Count > 0;
         resetButton.interactable = placedPieces.Count > 0 || pendingPiece != null;
 
         if (isTesting)
         {
-            testingLabel.text = "PRUEBA  " + (Time.time - testStartedAt).ToString("0.0") + " s";
+            testingLabel.text = "TEST  " + (Time.time - testStartedAt).ToString("0.0") + " s";
         }
 
         if (isShowingResult)
         {
             resultTitleLabel.text = state == LevelState.Success
-                ? "¡NIVEL COMPLETADO!"
-                : "PRUEBA FALLIDA";
+                ? "LEVEL COMPLETE!"
+                : "TEST FAILED";
             resultMessageLabel.text = status;
         }
 
         statusLabel.text = status;
+        if (isBuilding)
+        {
+            inventoryStatusLabel.text = GetInventoryStatus(
+                straightSelected,
+                halfStraightSelected,
+                curveSelected);
+        }
+        else
+        {
+            inventoryStatusLabel.text = isTesting ? "TEST RUNNING" : "RESULT";
+        }
+    }
+
+    private void ApplyPieceCardActiveStates()
+    {
+        straightPieceCard.ApplyInspectorActiveState();
+        curve45PieceCard.ApplyInspectorActiveState();
+        halfStraightPieceCard.ApplyInspectorActiveState();
+
+        foreach (PieceSelectionCard card in lockedPieceCards)
+        {
+            card.ApplyInspectorActiveState();
+        }
+    }
+
+    private void RefreshPaletteSummary()
+    {
+        int available = 0;
+        int locked = 0;
+        CountPaletteCard(straightPieceCard, ref available, ref locked);
+        CountPaletteCard(halfStraightPieceCard, ref available, ref locked);
+        CountPaletteCard(curve45PieceCard, ref available, ref locked);
+
+        foreach (PieceSelectionCard card in lockedPieceCards)
+        {
+            if (card != halfStraightPieceCard)
+            {
+                CountPaletteCard(card, ref available, ref locked);
+            }
+        }
+
+        paletteSummaryLabel.text = available + " AVAILABLE  ·  " + locked + " LOCKED";
+    }
+
+    private static void CountPaletteCard(
+        PieceSelectionCard card,
+        ref int available,
+        ref int locked)
+    {
+        if (card == null || !card.ActiveInPalette)
+        {
+            return;
+        }
+
+        if (card.LockedInPalette)
+        {
+            locked++;
+        }
+        else
+        {
+            available++;
+        }
+    }
+
+    private string GetInventoryStatus(
+        bool straightSelected,
+        bool halfStraightSelected,
+        bool curveSelected)
+    {
+        if (straightSelected)
+        {
+            return "SELECTED: STRAIGHT  -  x" + straightRemaining;
+        }
+        if (curveSelected)
+        {
+            return "SELECTED: 45° CURVE  -  x" + curveRemaining;
+        }
+        if (halfStraightSelected)
+        {
+            return "SELECTED: HALF STRAIGHT  -  x" + halfStraightRemaining;
+        }
+
+        bool straightActive = straightPieceCard.ActiveInPalette &&
+                              !straightPieceCard.LockedInPalette;
+        bool curveActive = curve45PieceCard.ActiveInPalette &&
+                           !curve45PieceCard.LockedInPalette;
+        bool halfStraightActive = halfStraightPieceCard.ActiveInPalette &&
+                                  !halfStraightPieceCard.LockedInPalette;
+        List<string> inventory = new List<string>();
+        if (straightActive) inventory.Add("STRAIGHT x" + straightRemaining);
+        if (halfStraightActive) inventory.Add("HALF STRAIGHT x" + halfStraightRemaining);
+        if (curveActive) inventory.Add("45° CURVE x" + curveRemaining);
+        return inventory.Count > 0 ? string.Join("  |  ", inventory) : "NO PIECES AVAILABLE";
     }
 
 #if UNITY_EDITOR
@@ -722,12 +920,16 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         Button newRetryButton,
         Button newEditButton,
         Button newResultResetButton,
-        Text newStraightButtonLabel,
-        Text newCurveButtonLabel,
-        Text newTestingLabel,
-        Text newStatusLabel,
-        Text newResultTitleLabel,
-        Text newResultMessageLabel)
+        TMP_Text newStraightButtonLabel,
+        TMP_Text newCurveButtonLabel,
+        TMP_Text newTestingLabel,
+        TMP_Text newStatusLabel,
+        TMP_Text newInventoryStatusLabel,
+        TMP_Text newResultTitleLabel,
+        TMP_Text newResultMessageLabel,
+        PieceSelectionCard newStraightPieceCard,
+        PieceSelectionCard newCurve45PieceCard,
+        PieceSelectionCard[] newLockedPieceCards)
     {
         buildControlsPanel = newBuildControlsPanel;
         testingControlsPanel = newTestingControlsPanel;
@@ -744,8 +946,12 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         curveButtonLabel = newCurveButtonLabel;
         testingLabel = newTestingLabel;
         statusLabel = newStatusLabel;
+        inventoryStatusLabel = newInventoryStatusLabel;
         resultTitleLabel = newResultTitleLabel;
         resultMessageLabel = newResultMessageLabel;
+        straightPieceCard = newStraightPieceCard;
+        curve45PieceCard = newCurve45PieceCard;
+        lockedPieceCards = newLockedPieceCards;
     }
 #endif
 }
