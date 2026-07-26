@@ -35,17 +35,15 @@ public sealed class PieceSelectionCard : MonoBehaviour,
 
     private static readonly Color NormalBackground = new Color(0.025f, 0.055f, 0.085f, 0.18f);
     private static readonly Color HoverBackground = new Color(0.035f, 0.13f, 0.19f, 0.30f);
-    private static readonly Color SelectedBackground = new Color(0.13f, 0.085f, 0.025f, 0.34f);
+    private static readonly Color SelectedBackground = new Color(0.025f, 0.14f, 0.20f, 0.34f);
     private static readonly Color DisabledBackground = new Color(0.035f, 0.04f, 0.05f, 0.38f);
     private static readonly Color NormalOutline = new Color(0.05f, 0.42f, 0.68f, 0.48f);
     private static readonly Color HoverOutline = new Color(0.10f, 0.72f, 1f, 1f);
-    private static readonly Color SelectedOutline = new Color(1f, 0.57f, 0.08f, 1f);
+    private static readonly Color SelectedOutline = new Color(0.10f, 0.82f, 1f, 1f);
     private static readonly Color DisabledOutline = new Color(0.28f, 0.31f, 0.35f, 0.6f);
     private static readonly Color CyanAccent = new Color(0.06f, 0.62f, 0.95f, 1f);
-    private static readonly Color OrangeAccent = new Color(1f, 0.48f, 0.04f, 1f);
     private static readonly Color DisabledAccent = new Color(0.31f, 0.34f, 0.38f, 0.75f);
     private static readonly Color EnabledThumbnail = Color.white;
-    private static readonly Color SelectedThumbnail = new Color(1f, 0.90f, 0.72f, 1f);
     private static readonly Color DisabledThumbnail = new Color(0.34f, 0.37f, 0.41f, 0.48f);
 
     private bool availableInLevel;
@@ -242,8 +240,8 @@ public sealed class PieceSelectionCard : MonoBehaviour,
             targetScale = Vector3.one * 1.025f;
             targetBackground = SelectedBackground;
             targetOutline = SelectedOutline;
-            targetAccent = OrangeAccent;
-            targetThumbnail = SelectedThumbnail;
+            targetAccent = CyanAccent;
+            targetThumbnail = EnabledThumbnail;
             return;
         }
 
