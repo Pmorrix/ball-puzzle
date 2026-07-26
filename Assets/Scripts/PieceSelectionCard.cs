@@ -1,3 +1,4 @@
+using System;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.UI;
@@ -57,6 +58,31 @@ public sealed class PieceSelectionCard : MonoBehaviour,
     public bool ActiveInPalette => activeInPalette;
     public bool LockedInPalette => lockedInPalette;
     public Button Button => button;
+    public event Action PointerPressed;
+
+    public Vector2 GetRightSideScreenPosition(float screenY, float margin)
+    {
+        RectTransform cardRect = transform as RectTransform;
+        if (cardRect == null)
+        {
+            return new Vector2(0f, screenY);
+        }
+
+        Canvas canvas = GetComponentInParent<Canvas>();
+        Camera canvasCamera =
+            canvas != null && canvas.renderMode != RenderMode.ScreenSpaceOverlay
+                ? canvas.worldCamera
+                : null;
+        Vector3[] corners = new Vector3[4];
+        cardRect.GetWorldCorners(corners);
+        Vector2 topRight =
+            RectTransformUtility.WorldToScreenPoint(canvasCamera, corners[2]);
+        Vector2 bottomRight =
+            RectTransformUtility.WorldToScreenPoint(canvasCamera, corners[3]);
+        float rightEdge = Mathf.Max(topRight.x, bottomRight.x);
+        float verticalPosition = Mathf.Clamp(screenY, bottomRight.y, topRight.y);
+        return new Vector2(rightEdge + margin, verticalPosition);
+    }
 
     private void Awake()
     {
@@ -150,7 +176,13 @@ public sealed class PieceSelectionCard : MonoBehaviour,
 
     public void OnPointerDown(PointerEventData eventData)
     {
-        pressed = IsInteractive();
+        pressed =
+            eventData.button == PointerEventData.InputButton.Left &&
+            IsInteractive();
+        if (pressed)
+        {
+            PointerPressed?.Invoke();
+        }
     }
 
     public void OnPointerUp(PointerEventData eventData)

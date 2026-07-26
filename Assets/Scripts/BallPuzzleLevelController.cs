@@ -10,6 +10,7 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
 {
     private const float ConnectionPositionTolerance = 0.01f;
     private const float ConnectionDirectionDot = -0.999f;
+    private const float PieceCardSpawnMargin = 24f;
 
     private static readonly Color ValidPlacementTint = new Color(0.12f, 1f, 0.28f, 1f);
     private static readonly Color InvalidPlacementTint = new Color(1f, 0.18f, 0.12f, 1f);
@@ -216,7 +217,9 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         status = "Arrastra la pieza y suelta el boton izquierdo para fijar su posicion.";
     }
 
-    private void BeginPlacement(CircuitPiece prefab)
+    private void BeginPlacement(
+        CircuitPiece prefab,
+        PieceSelectionCard sourceCard)
     {
         if (state != LevelState.Build || prefab == null || GetRemainingCount(prefab) <= 0)
         {
@@ -231,8 +234,29 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         pendingDragOffset = Vector3.zero;
         pendingRotationPivotLocal = pendingPiece.transform.InverseTransformPoint(
             pendingPiece.GetRenderBounds().center);
-        PositionPendingPieceAtStagingPoint();
-        status = "Haz clic sobre la pieza y manten pulsado para arrastrarla.";
+
+        Mouse mouse = Mouse.current;
+        if (mouse != null && mouse.leftButton.isPressed)
+        {
+            placementState = PlacementState.Dragging;
+            Vector2 pointerPosition = mouse.position.ReadValue();
+            Vector2 spawnPosition = sourceCard != null
+                ? sourceCard.GetRightSideScreenPosition(
+                    pointerPosition.y,
+                    PieceCardSpawnMargin)
+                : pointerPosition;
+            UpdatePendingPiece(spawnPosition);
+            if (sourceCard != null)
+            {
+                MovePendingPieceFullyRightOf(spawnPosition);
+            }
+            status = "Arrastra la pieza y suelta el boton izquierdo para fijar su posicion.";
+        }
+        else
+        {
+            PositionPendingPieceAtStagingPoint();
+            status = "Haz clic sobre la pieza y manten pulsado para arrastrarla.";
+        }
     }
 
     private void PositionPendingPieceAtStagingPoint()
@@ -264,6 +288,74 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         pendingPiece.transform.SetPositionAndRotation(snappedPosition, GetPendingRotation());
         RestPendingPieceOnBuildSurface();
         EvaluatePendingPlacement();
+    }
+
+    private void MovePendingPieceFullyRightOf(Vector2 minimumScreenPosition)
+    {
+        const int MaximumCorrectionIterations = 3;
+        Vector2 currentScreenPosition = minimumScreenPosition;
+
+        for (int iteration = 0;
+             iteration < MaximumCorrectionIterations;
+             iteration++)
+        {
+            float pieceLeftEdge = GetPendingPieceLeftScreenEdge();
+            float horizontalCorrection = minimumScreenPosition.x - pieceLeftEdge;
+            if (horizontalCorrection <= 0.5f)
+            {
+                break;
+            }
+
+            Vector2 correctedScreenPosition =
+                currentScreenPosition + Vector2.right * horizontalCorrection;
+            if (!TryGetBuildPoint(
+                    currentScreenPosition,
+                    out Vector3 currentBuildPoint) ||
+                !TryGetBuildPoint(
+                    correctedScreenPosition,
+                    out Vector3 correctedBuildPoint))
+            {
+                break;
+            }
+
+            Vector3 worldCorrection = correctedBuildPoint - currentBuildPoint;
+            worldCorrection.y = 0f;
+            pendingPiece.transform.position += worldCorrection;
+            RestPendingPieceOnBuildSurface();
+            currentScreenPosition = correctedScreenPosition;
+        }
+
+        EvaluatePendingPlacement();
+    }
+
+    private float GetPendingPieceLeftScreenEdge()
+    {
+        Bounds bounds = pendingPiece.GetRenderBounds();
+        Vector3 minimum = bounds.min;
+        Vector3 maximum = bounds.max;
+        float leftEdge = float.PositiveInfinity;
+
+        for (int x = 0; x < 2; x++)
+        {
+            for (int y = 0; y < 2; y++)
+            {
+                for (int z = 0; z < 2; z++)
+                {
+                    Vector3 corner = new Vector3(
+                        x == 0 ? minimum.x : maximum.x,
+                        y == 0 ? minimum.y : maximum.y,
+                        z == 0 ? minimum.z : maximum.z);
+                    Vector3 screenCorner =
+                        buildCamera.WorldToScreenPoint(corner);
+                    if (screenCorner.z > 0f)
+                    {
+                        leftEdge = Mathf.Min(leftEdge, screenCorner.x);
+                    }
+                }
+            }
+        }
+
+        return leftEdge;
     }
 
     private void EvaluatePendingPlacement()
@@ -827,9 +919,9 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
 
     private void WireUiEvents()
     {
-        straightButton.onClick.AddListener(SelectStraightPiece);
-        curveButton.onClick.AddListener(SelectCurvePiece);
-        halfStraightPieceCard.Button.onClick.AddListener(SelectHalfStraightPiece);
+        straightPieceCard.PointerPressed += SelectStraightPiece;
+        curve45PieceCard.PointerPressed += SelectCurvePiece;
+        halfStraightPieceCard.PointerPressed += SelectHalfStraightPiece;
         rotateYButton.onClick.AddListener(RotatePendingPieceY);
         rotateYCounterClockwiseButton.onClick.AddListener(RotatePendingPieceYCounterClockwise);
         placeButton.onClick.AddListener(PlacePendingPiece);
@@ -843,12 +935,9 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
 
     private void UnwireUiEvents()
     {
-        if (straightButton != null) straightButton.onClick.RemoveListener(SelectStraightPiece);
-        if (curveButton != null) curveButton.onClick.RemoveListener(SelectCurvePiece);
-        if (halfStraightPieceCard != null && halfStraightPieceCard.Button != null)
-        {
-            halfStraightPieceCard.Button.onClick.RemoveListener(SelectHalfStraightPiece);
-        }
+        if (straightPieceCard != null) straightPieceCard.PointerPressed -= SelectStraightPiece;
+        if (curve45PieceCard != null) curve45PieceCard.PointerPressed -= SelectCurvePiece;
+        if (halfStraightPieceCard != null) halfStraightPieceCard.PointerPressed -= SelectHalfStraightPiece;
         if (rotateYButton != null) rotateYButton.onClick.RemoveListener(RotatePendingPieceY);
         if (rotateYCounterClockwiseButton != null)
         {
@@ -867,7 +956,7 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
     {
         if (straightPieceCard.ActiveInPalette && !straightPieceCard.LockedInPalette)
         {
-            BeginPlacement(straightPiecePrefab);
+            BeginPlacement(straightPiecePrefab, straightPieceCard);
         }
     }
 
@@ -875,7 +964,7 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
     {
         if (curve45PieceCard.ActiveInPalette && !curve45PieceCard.LockedInPalette)
         {
-            BeginPlacement(curve45RightPiecePrefab);
+            BeginPlacement(curve45RightPiecePrefab, curve45PieceCard);
         }
     }
 
@@ -883,7 +972,7 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
     {
         if (halfStraightPieceCard.ActiveInPalette && !halfStraightPieceCard.LockedInPalette)
         {
-            BeginPlacement(halfStraightPiecePrefab);
+            BeginPlacement(halfStraightPiecePrefab, halfStraightPieceCard);
         }
     }
 
