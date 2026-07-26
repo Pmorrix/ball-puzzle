@@ -8,8 +8,11 @@ using TMPro;
 [DisallowMultipleComponent]
 public sealed class BallPuzzleLevelController : MonoBehaviour
 {
-    private const float CoincidentPositionTolerance = 0.025f;
-    private const float CoincidentDirectionDot = -0.995f;
+    private const float ConnectionPositionTolerance = 0.01f;
+    private const float ConnectionDirectionDot = -0.999f;
+
+    private static readonly Color ValidPlacementTint = new Color(0.12f, 1f, 0.28f, 1f);
+    private static readonly Color InvalidPlacementTint = new Color(1f, 0.18f, 0.12f, 1f);
 
     private enum LevelState
     {
@@ -17,6 +20,14 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         Testing,
         Failure,
         Success
+    }
+
+    private enum PlacementState
+    {
+        None,
+        Selected,
+        Dragging,
+        Positioned
     }
 
     [Header("Scene")]
@@ -33,9 +44,14 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
     [SerializeField, Min(0)] private int availableStraights = 2;
     [SerializeField, Min(0)] private int availableCurves = 2;
     [SerializeField, Min(0)] private int availableHalfStraights = 2;
-    [SerializeField, Min(0.25f)] private float connectorSnapDistance = 2.25f;
     [SerializeField, Min(1f)] private float buildHalfSize = 16f;
     [SerializeField] private Vector2 buildAreaCenter = new Vector2(0f, 4f);
+
+    [Header("Piece placement")]
+    [SerializeField, Min(0.01f)] private float placementGridSize = 0.05f;
+    [SerializeField, Min(0f)] private float connectionReleaseAssistDistance = 0.75f;
+    [SerializeField] private float buildSurfaceHeight;
+    [SerializeField, Min(1f)] private float rotationStep = 45f;
 
     [Header("Ball test")]
     [SerializeField, Min(0.1f)] private float launchSpeed = 7.5f;
@@ -48,8 +64,12 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
     [SerializeField] private GameObject buildControlsPanel;
     [SerializeField] private GameObject testingControlsPanel;
     [SerializeField] private GameObject resultPanel;
+    [SerializeField] private GameObject rotationControlsPanel;
     [SerializeField] private Button straightButton;
     [SerializeField] private Button curveButton;
+    [SerializeField] private Button rotateYButton;
+    [SerializeField] private Button rotateYCounterClockwiseButton;
+    [SerializeField] private Button placeButton;
     [SerializeField] private Button testButton;
     [SerializeField] private Button resetButton;
     [SerializeField] private Button stopButton;
@@ -70,20 +90,19 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
     [SerializeField] private PieceSelectionCard[] lockedPieceCards;
 
     private readonly List<CircuitPiece> placedPieces = new List<CircuitPiece>();
-    private readonly Dictionary<CircuitPiece, bool[]> connectedConnectors =
-        new Dictionary<CircuitPiece, bool[]>();
 
     private Transform placedPiecesRoot;
     private CircuitPiece pendingPiece;
-    private CircuitPiece pendingTargetPiece;
-    private int pendingTargetConnector = -1;
-    private bool pendingUsesStartAnchor;
-    private bool pendingHasValidSnap;
+    private PlacementState placementState = PlacementState.None;
+    private int pendingRotationIndex;
+    private Vector3 pendingDragOffset;
+    private Vector3 pendingRotationPivotLocal;
+    private bool pendingHasValidPosition;
     private int straightRemaining;
     private int curveRemaining;
     private int halfStraightRemaining;
     private LevelState state = LevelState.Build;
-    private string status = "Choose a piece and connect it to the blue point.";
+    private string status = "Choose a piece to start placing it.";
     private float testStartedAt;
     private float stoppedAt = -1f;
     private Vector3 prizeInitialScale;
@@ -97,7 +116,7 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
 
         if (buildCamera == null || straightPiecePrefab == null || curve45RightPiecePrefab == null ||
             halfStraightPiecePrefab == null ||
-            ball == null || ballSpawnPoint == null || prize == null || startAnchor == null ||
+            ball == null || ballSpawnPoint == null || prize == null ||
             !HasRequiredUi())
         {
             Debug.LogError("Level01: faltan referencias de escena, prefabs o Canvas UI.", this);
@@ -154,22 +173,47 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
             return;
         }
 
-        if (EventSystem.current != null && EventSystem.current.IsPointerOverGameObject())
-        {
-            return;
-        }
-
         if (mouse.rightButton.wasPressedThisFrame)
         {
             CancelPendingPiece();
             return;
         }
 
-        UpdatePendingPiece(mouse.position.ReadValue());
-        if (mouse.leftButton.wasPressedThisFrame)
+        bool pointerOverUi =
+            EventSystem.current != null && EventSystem.current.IsPointerOverGameObject();
+        Vector2 pointerPosition = mouse.position.ReadValue();
+
+        if (placementState == PlacementState.Dragging)
         {
-            PlacePendingPiece();
+            if (mouse.leftButton.wasReleasedThisFrame)
+            {
+                if (!pointerOverUi)
+                {
+                    UpdatePendingPiece(pointerPosition);
+                }
+
+                FinishPendingPieceDrag();
+                return;
+            }
+
+            if (mouse.leftButton.isPressed && !pointerOverUi)
+            {
+                UpdatePendingPiece(pointerPosition);
+            }
+
+            return;
         }
+
+        if (pointerOverUi ||
+            !mouse.leftButton.wasPressedThisFrame ||
+            !TryGetPendingPieceDragOffset(pointerPosition, out pendingDragOffset))
+        {
+            return;
+        }
+
+        placementState = PlacementState.Dragging;
+        UpdatePendingPiece(pointerPosition);
+        status = "Arrastra la pieza y suelta el boton izquierdo para fijar su posicion.";
     }
 
     private void BeginPlacement(CircuitPiece prefab)
@@ -182,162 +226,186 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         CancelPendingPiece(false);
         pendingPiece = Instantiate(prefab, placedPiecesRoot);
         pendingPiece.name = prefab.DisplayName + " (pendiente)";
-        pendingPiece.SetTint(new Color(0.92f, 0.34f, 0.25f, 1f));
-        status = placedPieces.Count == 0
-            ? "Fit the first piece to the blue point and click."
-            : "Move the piece near an open connector and click. Right-click cancels.";
+        placementState = PlacementState.Selected;
+        pendingRotationIndex = 0;
+        pendingDragOffset = Vector3.zero;
+        pendingRotationPivotLocal = pendingPiece.transform.InverseTransformPoint(
+            pendingPiece.GetRenderBounds().center);
+        PositionPendingPieceAtStagingPoint();
+        status = "Haz clic sobre la pieza y manten pulsado para arrastrarla.";
+    }
+
+    private void PositionPendingPieceAtStagingPoint()
+    {
+        Vector3 stagingPosition = new Vector3(
+            SnapToGrid(buildAreaCenter.x),
+            buildSurfaceHeight,
+            SnapToGrid(buildAreaCenter.y));
+        pendingPiece.transform.SetPositionAndRotation(
+            stagingPosition,
+            GetPendingRotation());
+        RestPendingPieceOnBuildSurface();
+        EvaluatePendingPlacement();
     }
 
     private void UpdatePendingPiece(Vector2 mousePosition)
     {
         if (!TryGetBuildPoint(mousePosition, out Vector3 buildPoint))
         {
-            pendingHasValidSnap = false;
+            SetPendingPlacementValidity(false);
             return;
         }
 
-        pendingPiece.transform.SetPositionAndRotation(buildPoint, Quaternion.identity);
-        pendingTargetPiece = null;
-        pendingTargetConnector = -1;
-        pendingUsesStartAnchor = false;
+        buildPoint += pendingDragOffset;
+        Vector3 snappedPosition = new Vector3(
+            SnapToGrid(buildPoint.x),
+            buildSurfaceHeight,
+            SnapToGrid(buildPoint.z));
+        pendingPiece.transform.SetPositionAndRotation(snappedPosition, GetPendingRotation());
+        RestPendingPieceOnBuildSurface();
+        EvaluatePendingPlacement();
+    }
 
-        Vector3 position;
-        Quaternion rotation;
-        bool foundSnap;
-        if (placedPieces.Count == 0)
+    private void EvaluatePendingPlacement()
+    {
+        if (pendingPiece == null || !pendingPiece.gameObject.activeSelf)
         {
-            foundSnap = TrySnapToStartAnchor(buildPoint, out position, out rotation);
-        }
-        else
-        {
-            foundSnap = TrySnapToOpenConnector(
-                buildPoint,
-                out pendingTargetPiece,
-                out pendingTargetConnector,
-                out position,
-                out rotation);
-        }
-
-        if (!foundSnap)
-        {
-            pendingHasValidSnap = false;
-            pendingPiece.SetTint(new Color(0.92f, 0.34f, 0.25f, 1f));
+            SetPendingPlacementValidity(false);
             return;
         }
 
-        pendingPiece.transform.SetPositionAndRotation(position, rotation);
-        pendingHasValidSnap = IsInsideBuildArea(pendingPiece) && !DuplicatesExistingOrigin(pendingPiece);
-        pendingPiece.SetTint(pendingHasValidSnap
-            ? new Color(0.30f, 0.90f, 0.48f, 1f)
-            : new Color(0.92f, 0.34f, 0.25f, 1f));
+        bool isInsideBuildArea = IsInsideBuildArea(pendingPiece);
+        bool hasValidConnection = placedPieces.Count == 0 || HasValidConnection(pendingPiece);
+        SetPendingPlacementValidity(isInsideBuildArea && hasValidConnection);
     }
 
-    private bool TrySnapToStartAnchor(
-        Vector3 buildPoint,
-        out Vector3 snappedPosition,
-        out Quaternion snappedRotation)
+    private void FinishPendingPieceDrag()
     {
-        pendingUsesStartAnchor = true;
-        return TryBuildSnap(
-            buildPoint,
-            startAnchor.position,
-            Flatten(startAnchor.forward),
-            out snappedPosition,
-            out snappedRotation);
-    }
-
-    private bool TrySnapToOpenConnector(
-        Vector3 buildPoint,
-        out CircuitPiece targetPiece,
-        out int targetConnector,
-        out Vector3 snappedPosition,
-        out Quaternion snappedRotation)
-    {
-        targetPiece = null;
-        targetConnector = -1;
-        snappedPosition = Vector3.zero;
-        snappedRotation = Quaternion.identity;
-        float closestDistance = connectorSnapDistance;
-
-        foreach (CircuitPiece piece in placedPieces)
+        if (pendingPiece == null || !pendingPiece.gameObject.activeSelf)
         {
-            for (int connector = 0; connector < piece.ConnectorCount; connector++)
+            placementState = PlacementState.Selected;
+            return;
+        }
+
+        if (placedPieces.Count > 0)
+        {
+            TryAlignPendingPieceToFreeConnector();
+        }
+
+        EvaluatePendingPlacement();
+        placementState = PlacementState.Positioned;
+        status = pendingHasValidPosition
+            ? "Posicion valida. Puedes girar, volver a arrastrar o pulsar COLOCAR."
+            : GetInvalidPlacementMessage();
+    }
+
+    private bool TryGetPendingPieceDragOffset(
+        Vector2 mousePosition,
+        out Vector3 dragOffset)
+    {
+        dragOffset = Vector3.zero;
+        Ray ray = buildCamera.ScreenPointToRay(mousePosition);
+        RaycastHit[] hits = Physics.RaycastAll(
+            ray,
+            float.PositiveInfinity,
+            Physics.DefaultRaycastLayers,
+            QueryTriggerInteraction.Ignore);
+        bool hitPendingPiece = false;
+        float closestDistance = float.PositiveInfinity;
+
+        foreach (RaycastHit hit in hits)
+        {
+            if (hit.collider == null)
             {
-                if (IsConnected(piece, connector) ||
-                    !TryBuildSnap(
-                        buildPoint,
-                        piece.GetConnectorPosition(connector),
-                        Flatten(piece.GetConnectorDirection(connector)),
-                        out Vector3 candidatePosition,
-                        out Quaternion candidateRotation))
-                {
-                    continue;
-                }
-
-                float distance = HorizontalDistance(buildPoint, candidatePosition);
-                if (distance < closestDistance)
-                {
-                    closestDistance = distance;
-                    targetPiece = piece;
-                    targetConnector = connector;
-                    snappedPosition = candidatePosition;
-                    snappedRotation = candidateRotation;
-                }
+                continue;
             }
+
+            Transform hitTransform = hit.collider.transform;
+            bool belongsToPendingPiece =
+                hitTransform == pendingPiece.transform ||
+                hitTransform.IsChildOf(pendingPiece.transform);
+            if (!belongsToPendingPiece || hit.distance >= closestDistance)
+            {
+                continue;
+            }
+
+            hitPendingPiece = true;
+            closestDistance = hit.distance;
         }
 
-        return targetPiece != null;
+        if (!hitPendingPiece ||
+            !TryGetBuildPoint(mousePosition, out Vector3 buildPoint))
+        {
+            return false;
+        }
+
+        dragOffset = pendingPiece.transform.position - buildPoint;
+        dragOffset.y = 0f;
+        return true;
     }
 
-    private bool TryBuildSnap(
-        Vector3 buildPoint,
-        Vector3 targetPosition,
-        Vector3 targetDirection,
-        out Vector3 snappedPosition,
-        out Quaternion snappedRotation)
+    private string GetInvalidPlacementMessage()
     {
-        int sourceConnector = pendingPiece.IncomingConnectorIndex;
-        Vector3 sourceLocalPosition = pendingPiece.transform.InverseTransformPoint(
-            pendingPiece.GetConnectorPosition(sourceConnector));
-        Vector3 sourceLocalDirection = Flatten(pendingPiece.transform.InverseTransformDirection(
-            pendingPiece.GetConnectorDirection(sourceConnector)));
+        return placedPieces.Count == 0
+            ? "La primera pieza debe quedar completamente dentro del tablero."
+            : "La pieza debe conectar correctamente con un extremo libre.";
+    }
 
-        float yaw = Vector3.SignedAngle(sourceLocalDirection, -targetDirection, Vector3.up);
-        yaw = Mathf.Round(yaw / 45f) * 45f;
-        snappedRotation = Quaternion.Euler(0f, yaw, 0f);
-        snappedPosition = targetPosition - snappedRotation * sourceLocalPosition;
-        return HorizontalDistance(buildPoint, snappedPosition) <= connectorSnapDistance;
+    private Quaternion GetPendingRotation()
+    {
+        return Quaternion.Euler(0f, pendingRotationIndex * rotationStep, 0f);
+    }
+
+    private float SnapToGrid(float value)
+    {
+        return Mathf.Round(value / placementGridSize) * placementGridSize;
+    }
+
+    private void RestPendingPieceOnBuildSurface()
+    {
+        Bounds bounds = pendingPiece.GetRenderBounds();
+        Vector3 position = pendingPiece.transform.position;
+        position.y += buildSurfaceHeight - bounds.min.y;
+        pendingPiece.transform.position = position;
+    }
+
+    private void SetPendingPlacementValidity(bool isValid)
+    {
+        pendingHasValidPosition = isValid;
+        if (pendingPiece != null)
+        {
+            pendingPiece.SetTint(isValid ? ValidPlacementTint : InvalidPlacementTint);
+        }
     }
 
     private void PlacePendingPiece()
     {
-        if (!pendingHasValidSnap || (!pendingUsesStartAnchor && pendingTargetPiece == null))
+        if (placementState != PlacementState.Positioned ||
+            pendingPiece == null ||
+            !pendingPiece.gameObject.activeSelf)
         {
-            status = "The piece must turn green before you place it.";
+            status = "Arrastra y suelta la pieza antes de colocarla.";
+            return;
+        }
+
+        if (!pendingHasValidPosition)
+        {
+            status = GetInvalidPlacementMessage();
             return;
         }
 
         CircuitPiece piece = pendingPiece;
         piece.name = piece.DisplayName + " " + (placedPieces.Count + 1);
         piece.ClearTint();
-        RegisterPlacedPiece(piece);
-
-        if (pendingUsesStartAnchor)
-        {
-            connectedConnectors[piece][piece.IncomingConnectorIndex] = true;
-        }
-        else
-        {
-            Connect(piece, piece.IncomingConnectorIndex, pendingTargetPiece, pendingTargetConnector);
-        }
-        ConnectOtherCoincidentConnectors(piece);
+        placedPieces.Add(piece);
         ConsumePiece(piece);
 
         pendingPiece = null;
-        pendingTargetPiece = null;
-        pendingTargetConnector = -1;
-        pendingUsesStartAnchor = false;
-        pendingHasValidSnap = false;
+        placementState = PlacementState.None;
+        pendingRotationIndex = 0;
+        pendingDragOffset = Vector3.zero;
+        pendingRotationPivotLocal = Vector3.zero;
+        pendingHasValidPosition = false;
         status = "Piece placed. Continue or press TEST.";
     }
 
@@ -349,10 +417,11 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         }
 
         pendingPiece = null;
-        pendingTargetPiece = null;
-        pendingTargetConnector = -1;
-        pendingUsesStartAnchor = false;
-        pendingHasValidSnap = false;
+        placementState = PlacementState.None;
+        pendingRotationIndex = 0;
+        pendingDragOffset = Vector3.zero;
+        pendingRotationPivotLocal = Vector3.zero;
+        pendingHasValidPosition = false;
         if (updateStatus)
         {
             status = "Placement cancelled.";
@@ -379,11 +448,9 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         prize.localScale = prizeInitialScale;
 
         ball.gameObject.SetActive(true);
-        ball.isKinematic = true;
         ball.transform.SetPositionAndRotation(ballSpawnPoint.position, ballSpawnPoint.rotation);
-        ball.linearVelocity = Vector3.zero;
-        ball.angularVelocity = Vector3.zero;
         ball.isKinematic = false;
+        ball.angularVelocity = Vector3.zero;
         ball.linearVelocity = ballSpawnPoint.forward * launchSpeed;
         ball.WakeUp();
         status = "Test running: the ball must collect the prize.";
@@ -466,7 +533,6 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
             }
         }
         placedPieces.Clear();
-        connectedConnectors.Clear();
         straightRemaining = availableStraights;
         curveRemaining = availableCurves;
         halfStraightRemaining = availableHalfStraights;
@@ -474,7 +540,7 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         ResetBallForBuild();
         prize.gameObject.SetActive(true);
         prize.localScale = prizeInitialScale;
-        status = "Layout reset. Connect a piece to the blue point.";
+        status = "Layout reset. Choose a piece to place it.";
     }
 
     private void FreezeBall()
@@ -486,9 +552,13 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
 
     private void ResetBallForBuild()
     {
+        if (!ball.isKinematic)
+        {
+            ball.linearVelocity = Vector3.zero;
+            ball.angularVelocity = Vector3.zero;
+        }
+
         ball.isKinematic = true;
-        ball.linearVelocity = Vector3.zero;
-        ball.angularVelocity = Vector3.zero;
         ball.transform.SetPositionAndRotation(ballSpawnPoint.position, ballSpawnPoint.rotation);
         ball.gameObject.SetActive(true);
     }
@@ -502,73 +572,14 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         prize.Rotate(0f, 65f * Time.deltaTime, 0f, Space.World);
     }
 
-    private void RegisterPlacedPiece(CircuitPiece piece)
-    {
-        placedPieces.Add(piece);
-        connectedConnectors[piece] = new bool[piece.ConnectorCount];
-    }
-
-    private bool IsConnected(CircuitPiece piece, int connector)
-    {
-        return connectedConnectors.TryGetValue(piece, out bool[] states) && states[connector];
-    }
-
-    private void Connect(CircuitPiece first, int firstConnector, CircuitPiece second, int secondConnector)
-    {
-        connectedConnectors[first][firstConnector] = true;
-        connectedConnectors[second][secondConnector] = true;
-    }
-
-    private void ConnectOtherCoincidentConnectors(CircuitPiece newPiece)
-    {
-        for (int newConnector = 0; newConnector < newPiece.ConnectorCount; newConnector++)
-        {
-            if (IsConnected(newPiece, newConnector))
-            {
-                continue;
-            }
-
-            foreach (CircuitPiece placedPiece in placedPieces)
-            {
-                if (IsConnected(newPiece, newConnector))
-                {
-                    break;
-                }
-                if (placedPiece == newPiece)
-                {
-                    continue;
-                }
-
-                for (int placedConnector = 0; placedConnector < placedPiece.ConnectorCount; placedConnector++)
-                {
-                    if (IsConnected(placedPiece, placedConnector) ||
-                        Vector3.Distance(newPiece.GetConnectorPosition(newConnector),
-                            placedPiece.GetConnectorPosition(placedConnector)) > CoincidentPositionTolerance)
-                    {
-                        continue;
-                    }
-
-                    float dot = Vector3.Dot(
-                        Flatten(newPiece.GetConnectorDirection(newConnector)),
-                        Flatten(placedPiece.GetConnectorDirection(placedConnector)));
-                    if (dot <= CoincidentDirectionDot)
-                    {
-                        Connect(newPiece, newConnector, placedPiece, placedConnector);
-                        break;
-                    }
-                }
-            }
-        }
-    }
-
     private bool TryGetBuildPoint(Vector2 mousePosition, out Vector3 point)
     {
         Ray ray = buildCamera.ScreenPointToRay(mousePosition);
-        Plane plane = new Plane(Vector3.up, Vector3.zero);
+        Plane plane = new Plane(Vector3.up, new Vector3(0f, buildSurfaceHeight, 0f));
         if (plane.Raycast(ray, out float distance))
         {
             point = ray.GetPoint(distance);
-            point.y = 0f;
+            point.y = buildSurfaceHeight;
             return true;
         }
 
@@ -585,19 +596,167 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
                bounds.max.z <= buildAreaCenter.y + buildHalfSize;
     }
 
-    private bool DuplicatesExistingOrigin(CircuitPiece piece)
+    private bool HasValidConnection(CircuitPiece candidate)
     {
-        foreach (CircuitPiece placedPiece in placedPieces)
+        for (int candidateConnector = 0;
+             candidateConnector < candidate.ConnectorCount;
+             candidateConnector++)
         {
-            Vector2 difference = new Vector2(
-                piece.transform.position.x - placedPiece.transform.position.x,
-                piece.transform.position.z - placedPiece.transform.position.z);
-            if (difference.sqrMagnitude < 0.04f)
+            foreach (CircuitPiece placedPiece in placedPieces)
             {
-                return true;
+                if (placedPiece == null)
+                {
+                    continue;
+                }
+
+                for (int placedConnector = 0;
+                     placedConnector < placedPiece.ConnectorCount;
+                     placedConnector++)
+                {
+                    if (!IsPlacedConnectorOccupied(placedPiece, placedConnector) &&
+                        AreConnectorsAligned(
+                            candidate,
+                            candidateConnector,
+                            placedPiece,
+                            placedConnector))
+                    {
+                        return true;
+                    }
+                }
             }
         }
+
         return false;
+    }
+
+    private bool TryAlignPendingPieceToFreeConnector()
+    {
+        bool foundConnection = false;
+        float closestDistance = float.PositiveInfinity;
+        Vector3 bestOffset = Vector3.zero;
+
+        for (int candidateConnector = 0;
+             candidateConnector < pendingPiece.ConnectorCount;
+             candidateConnector++)
+        {
+            foreach (CircuitPiece placedPiece in placedPieces)
+            {
+                if (placedPiece == null)
+                {
+                    continue;
+                }
+
+                for (int placedConnector = 0;
+                     placedConnector < placedPiece.ConnectorCount;
+                     placedConnector++)
+                {
+                    if (IsPlacedConnectorOccupied(placedPiece, placedConnector) ||
+                        !AreConnectorDirectionsOpposite(
+                            pendingPiece,
+                            candidateConnector,
+                            placedPiece,
+                            placedConnector))
+                    {
+                        continue;
+                    }
+
+                    Vector3 candidatePosition =
+                        pendingPiece.GetConnectorPosition(candidateConnector);
+                    Vector3 placedPosition =
+                        placedPiece.GetConnectorPosition(placedConnector);
+                    Vector3 offset = placedPosition - candidatePosition;
+                    offset.y = 0f;
+                    float distance = offset.magnitude;
+                    if (distance > connectionReleaseAssistDistance ||
+                        distance >= closestDistance)
+                    {
+                        continue;
+                    }
+
+                    foundConnection = true;
+                    closestDistance = distance;
+                    bestOffset = offset;
+                }
+            }
+        }
+
+        if (!foundConnection)
+        {
+            return false;
+        }
+
+        pendingPiece.transform.position += bestOffset;
+        RestPendingPieceOnBuildSurface();
+        return true;
+    }
+
+    private bool IsPlacedConnectorOccupied(CircuitPiece piece, int connector)
+    {
+        foreach (CircuitPiece otherPiece in placedPieces)
+        {
+            if (otherPiece == null || otherPiece == piece)
+            {
+                continue;
+            }
+
+            for (int otherConnector = 0;
+                 otherConnector < otherPiece.ConnectorCount;
+                 otherConnector++)
+            {
+                if (AreConnectorsAligned(piece, connector, otherPiece, otherConnector))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private static bool AreConnectorsAligned(
+        CircuitPiece firstPiece,
+        int firstConnector,
+        CircuitPiece secondPiece,
+        int secondConnector)
+    {
+        Vector3 firstPosition = firstPiece.GetConnectorPosition(firstConnector);
+        Vector3 secondPosition = secondPiece.GetConnectorPosition(secondConnector);
+        if (HorizontalDistance(firstPosition, secondPosition) > ConnectionPositionTolerance)
+        {
+            return false;
+        }
+
+        return AreConnectorDirectionsOpposite(
+            firstPiece,
+            firstConnector,
+            secondPiece,
+            secondConnector);
+    }
+
+    private static bool AreConnectorDirectionsOpposite(
+        CircuitPiece firstPiece,
+        int firstConnector,
+        CircuitPiece secondPiece,
+        int secondConnector)
+    {
+        Vector3 firstDirection = Flatten(firstPiece.GetConnectorDirection(firstConnector));
+        Vector3 secondDirection = Flatten(secondPiece.GetConnectorDirection(secondConnector));
+        return firstDirection.sqrMagnitude > Mathf.Epsilon &&
+               secondDirection.sqrMagnitude > Mathf.Epsilon &&
+               Vector3.Dot(firstDirection, secondDirection) <= ConnectionDirectionDot;
+    }
+
+    private static float HorizontalDistance(Vector3 first, Vector3 second)
+    {
+        return Vector2.Distance(
+            new Vector2(first.x, first.z),
+            new Vector2(second.x, second.z));
+    }
+
+    private static Vector3 Flatten(Vector3 direction)
+    {
+        direction.y = 0f;
+        return direction.normalized;
     }
 
     private int GetRemainingCount(CircuitPiece prefab)
@@ -631,21 +790,13 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         }
     }
 
-    private static Vector3 Flatten(Vector3 direction)
-    {
-        direction.y = 0f;
-        return direction.sqrMagnitude > 0.0001f ? direction.normalized : Vector3.forward;
-    }
-
-    private static float HorizontalDistance(Vector3 first, Vector3 second)
-    {
-        return Vector2.Distance(new Vector2(first.x, first.z), new Vector2(second.x, second.z));
-    }
-
     private bool HasRequiredUi()
     {
         return buildControlsPanel != null && testingControlsPanel != null && resultPanel != null &&
+               rotationControlsPanel != null &&
                straightButton != null && curveButton != null && testButton != null &&
+               rotateYButton != null && rotateYCounterClockwiseButton != null &&
+               placeButton != null &&
                resetButton != null && stopButton != null && retryButton != null &&
                editButton != null && resultResetButton != null && straightButtonLabel != null &&
                curveButtonLabel != null && testingLabel != null && statusLabel != null &&
@@ -679,6 +830,9 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         straightButton.onClick.AddListener(SelectStraightPiece);
         curveButton.onClick.AddListener(SelectCurvePiece);
         halfStraightPieceCard.Button.onClick.AddListener(SelectHalfStraightPiece);
+        rotateYButton.onClick.AddListener(RotatePendingPieceY);
+        rotateYCounterClockwiseButton.onClick.AddListener(RotatePendingPieceYCounterClockwise);
+        placeButton.onClick.AddListener(PlacePendingPiece);
         testButton.onClick.AddListener(StartBallTest);
         resetButton.onClick.AddListener(ResetLayout);
         stopButton.onClick.AddListener(ReturnToBuild);
@@ -695,6 +849,12 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         {
             halfStraightPieceCard.Button.onClick.RemoveListener(SelectHalfStraightPiece);
         }
+        if (rotateYButton != null) rotateYButton.onClick.RemoveListener(RotatePendingPieceY);
+        if (rotateYCounterClockwiseButton != null)
+        {
+            rotateYCounterClockwiseButton.onClick.RemoveListener(RotatePendingPieceYCounterClockwise);
+        }
+        if (placeButton != null) placeButton.onClick.RemoveListener(PlacePendingPiece);
         if (testButton != null) testButton.onClick.RemoveListener(StartBallTest);
         if (resetButton != null) resetButton.onClick.RemoveListener(ResetLayout);
         if (stopButton != null) stopButton.onClick.RemoveListener(ReturnToBuild);
@@ -727,6 +887,51 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         }
     }
 
+    private void RotatePendingPieceY()
+    {
+        RotatePendingPieceY(1);
+    }
+
+    private void RotatePendingPieceYCounterClockwise()
+    {
+        RotatePendingPieceY(-1);
+    }
+
+    private void RotatePendingPieceY(int direction)
+    {
+        if (state != LevelState.Build ||
+            pendingPiece == null ||
+            placementState != PlacementState.Positioned)
+        {
+            return;
+        }
+
+        int orientationCount = Mathf.Max(1, Mathf.RoundToInt(360f / rotationStep));
+        pendingRotationIndex =
+            (pendingRotationIndex + direction + orientationCount) %
+            orientationCount;
+
+        ApplyPendingRotationAroundPivot();
+        RestPendingPieceOnBuildSurface();
+        EvaluatePendingPlacement();
+        float angle = direction * rotationStep;
+        status = "Giro " + angle.ToString("+0;-0;0") +
+                 " grados en Y. La posicion permanece fija.";
+    }
+
+    private void ApplyPendingRotationAroundPivot()
+    {
+        Quaternion targetRotation = GetPendingRotation();
+        Quaternion rotationDelta =
+            targetRotation * Quaternion.Inverse(pendingPiece.transform.rotation);
+        Vector3 pivotWorld =
+            pendingPiece.transform.TransformPoint(pendingRotationPivotLocal);
+        Vector3 rootOffset = pendingPiece.transform.position - pivotWorld;
+        Vector3 targetPosition = pivotWorld + rotationDelta * rootOffset;
+
+        pendingPiece.transform.SetPositionAndRotation(targetPosition, targetRotation);
+    }
+
     private void RefreshUi()
     {
         ApplyPieceCardActiveStates();
@@ -738,6 +943,7 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         buildControlsPanel.SetActive(isBuilding);
         testingControlsPanel.SetActive(isTesting);
         resultPanel.SetActive(isShowingResult);
+        rotationControlsPanel.SetActive(isBuilding);
         RefreshPaletteSummary();
 
         bool straightSelected = pendingPiece != null && pendingPiece.PieceType == CircuitPieceType.Straight;
@@ -779,6 +985,14 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
 
         testButton.interactable = pendingPiece == null && placedPieces.Count > 0;
         resetButton.interactable = placedPieces.Count > 0 || pendingPiece != null;
+        bool canManipulatePendingPiece =
+            isBuilding &&
+            pendingPiece != null &&
+            pendingPiece.gameObject.activeSelf &&
+            placementState == PlacementState.Positioned;
+        rotateYButton.interactable = canManipulatePendingPiece;
+        rotateYCounterClockwiseButton.interactable = canManipulatePendingPiece;
+        placeButton.interactable = canManipulatePendingPiece && pendingHasValidPosition;
 
         if (isTesting)
         {
@@ -952,6 +1166,18 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         straightPieceCard = newStraightPieceCard;
         curve45PieceCard = newCurve45PieceCard;
         lockedPieceCards = newLockedPieceCards;
+    }
+
+    public void ConfigureRotationUiForEditor(
+        GameObject newRotationControlsPanel,
+        Button newRotateYButton,
+        Button newRotateYCounterClockwiseButton,
+        Button newPlaceButton)
+    {
+        rotationControlsPanel = newRotationControlsPanel;
+        rotateYButton = newRotateYButton;
+        rotateYCounterClockwiseButton = newRotateYCounterClockwiseButton;
+        placeButton = newPlaceButton;
     }
 #endif
 }
