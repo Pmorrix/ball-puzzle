@@ -138,6 +138,12 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         }
 
         ApplyPieceCardActiveStates();
+        EnablePanelDragging(rotationControlsPanel);
+        GameObject piecePalettePanel = paletteSummaryLabel.transform.parent.gameObject;
+        Transform topBar = buildControlsPanel.transform.parent.Find("Top Bar");
+        LinkDraggablePanels(
+            piecePalettePanel,
+            topBar != null ? topBar.gameObject : null);
         WireUiEvents();
 
         GameObject piecesRoot = new GameObject("Placed Puzzle Pieces");
@@ -164,6 +170,40 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         {
             Destroy(placementIndicatorTexture);
         }
+    }
+
+    private static DraggableUIPanel EnablePanelDragging(GameObject panel)
+    {
+        if (panel == null)
+        {
+            return null;
+        }
+
+        Image panelImage = panel.GetComponent<Image>();
+        if (panelImage != null)
+        {
+            panelImage.raycastTarget = true;
+        }
+
+        if (panel.TryGetComponent(out DraggableUIPanel draggable))
+        {
+            return draggable;
+        }
+
+        return panel.AddComponent<DraggableUIPanel>();
+    }
+
+    private static void LinkDraggablePanels(GameObject firstPanel, GameObject secondPanel)
+    {
+        DraggableUIPanel firstDraggable = EnablePanelDragging(firstPanel);
+        DraggableUIPanel secondDraggable = EnablePanelDragging(secondPanel);
+        if (firstDraggable == null || secondDraggable == null)
+        {
+            return;
+        }
+
+        firstDraggable.SetLinkedPanel(secondPanel.transform as RectTransform);
+        secondDraggable.SetLinkedPanel(firstPanel.transform as RectTransform);
     }
 
     private void Update()
@@ -236,7 +276,7 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
 
         placementState = PlacementState.Dragging;
         UpdatePendingPiece(pointerPosition);
-        status = "Arrastra la pieza y suelta el boton izquierdo para fijar su posicion.";
+        status = "Drag the piece and release the left mouse button to set its position.";
     }
 
     private void BeginPlacement(
@@ -273,12 +313,12 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
             {
                 MovePendingPieceFullyRightOf(spawnPosition);
             }
-            status = "Arrastra la pieza y suelta el boton izquierdo para fijar su posicion.";
+            status = "Drag the piece and release the left mouse button to set its position.";
         }
         else
         {
             PositionPendingPieceAtStagingPoint();
-            status = "Haz clic sobre la pieza y manten pulsado para arrastrarla.";
+            status = "Click and hold the piece to drag it.";
         }
     }
 
@@ -410,7 +450,7 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         placementState = PlacementState.Positioned;
         EvaluatePendingPlacement();
         status = pendingHasValidPosition
-            ? "Posicion valida. Puedes girar, volver a arrastrar o pulsar COLOCAR."
+            ? "Valid position. You can rotate, drag again, or press PLACE."
             : GetInvalidPlacementMessage();
     }
 
@@ -462,8 +502,8 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
     private string GetInvalidPlacementMessage()
     {
         return placedPieces.Count == 0
-            ? "La primera pieza debe quedar completamente dentro del tablero."
-            : "La pieza debe conectar correctamente con un extremo libre.";
+            ? "The first piece must remain completely inside the board."
+            : "The piece must connect correctly to an open endpoint.";
     }
 
     private Quaternion GetPendingRotation()
@@ -496,7 +536,7 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
             pendingPiece == null ||
             !pendingPiece.gameObject.activeSelf)
         {
-            status = "Arrastra y suelta la pieza antes de colocarla.";
+            status = "Drag and release the piece before placing it.";
             return;
         }
 
@@ -707,7 +747,7 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         }
         if (Time.time - testStartedAt >= maximumTestDuration)
         {
-            FailTest("Se agotó el tiempo de la prueba.");
+            FailTest("The test timed out.");
             return;
         }
 
@@ -1149,8 +1189,8 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         RestPendingPieceOnBuildSurface();
         EvaluatePendingPlacement();
         float angle = direction * rotationStep;
-        status = "Giro " + angle.ToString("+0;-0;0") +
-                 " grados en Y. La posicion permanece fija.";
+        status = "Rotated " + angle.ToString("+0;-0;0") +
+                 " degrees around Y. Position unchanged.";
     }
 
     private void ApplyPendingRotationAroundPivot()
