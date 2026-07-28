@@ -24,7 +24,15 @@ public sealed class DraggableUIPanel : MonoBehaviour, IBeginDragHandler, IDragHa
 
     public void OnBeginDrag(PointerEventData eventData)
     {
-        isDragging = eventData.button == PointerEventData.InputButton.Left;
+        // Las tarjetas reservan el arrastre para seleccionar y mover piezas.
+        if (eventData.button != PointerEventData.InputButton.Left ||
+            IsPointerOverPieceCard(eventData))
+        {
+            isDragging = false;
+            return;
+        }
+
+        isDragging = true;
     }
 
     public void OnDrag(PointerEventData eventData)
@@ -47,6 +55,18 @@ public sealed class DraggableUIPanel : MonoBehaviour, IBeginDragHandler, IDragHa
     public void SetLinkedPanel(RectTransform panel)
     {
         linkedPanel = panel != panelRect ? panel : null;
+    }
+
+    private static bool IsPointerOverPieceCard(PointerEventData eventData)
+    {
+        GameObject pressedObject = eventData.pointerPressRaycast.gameObject;
+        if (pressedObject == null)
+        {
+            pressedObject = eventData.pointerPress;
+        }
+
+        return pressedObject != null &&
+               pressedObject.GetComponentInParent<PieceSelectionCard>() != null;
     }
 
     private void MovePanels(Vector2 delta)

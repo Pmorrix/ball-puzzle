@@ -96,6 +96,10 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
     [SerializeField] private PieceSelectionCard halfStraightPieceCard;
     [SerializeField] private PieceSelectionCard[] lockedPieceCards;
 
+    [Header("Tutorial")]
+    [SerializeField] private GameObject tutorialStepOne;
+    [SerializeField] private GameObject tutorialStepTwoTarget;
+
     private readonly List<CircuitPiece> placedPieces = new List<CircuitPiece>();
 
     private Transform placedPiecesRoot;
@@ -150,6 +154,9 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         piecesRoot.transform.SetParent(transform, false);
         placedPiecesRoot = piecesRoot.transform;
         CreatePlacementIndicator();
+
+        // El tutorial empieza indicando qué pieza debe elegirse.
+        ShowTutorialHint(tutorialStepOne);
 
         straightRemaining = availableStraights;
         curveRemaining = availableCurves;
@@ -292,6 +299,10 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         pendingPiece = Instantiate(prefab, placedPiecesRoot);
         pendingPiece.name = prefab.DisplayName + " (pendiente)";
         pendingPiece.ClearTint();
+
+        // El segundo paso indica dónde puede soltarse la pieza.
+        ShowTutorialHint(tutorialStepTwoTarget);
+
         placementState = PlacementState.Selected;
         pendingRotationIndex = 0;
         pendingDragOffset = Vector3.zero;
@@ -449,6 +460,11 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
 
         placementState = PlacementState.Positioned;
         EvaluatePendingPlacement();
+        if (pendingHasValidPosition)
+        {
+            ShowTutorialHint(null);
+        }
+
         status = pendingHasValidPosition
             ? "Valid position. You can rotate, drag again, or press PLACE."
             : GetInvalidPlacementMessage();
@@ -552,6 +568,7 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         HidePlacementIndicator();
         placedPieces.Add(piece);
         ConsumePiece(piece);
+        ShowTutorialHint(null);
 
         pendingPiece = null;
         placementState = PlacementState.None;
@@ -576,9 +593,25 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         pendingDragOffset = Vector3.zero;
         pendingRotationPivotLocal = Vector3.zero;
         pendingHasValidPosition = false;
+        ShowTutorialHint(
+            placedPieces.Count == 0 ? tutorialStepOne : null);
         if (updateStatus)
         {
             status = "Placement cancelled.";
+        }
+    }
+
+    private void ShowTutorialHint(GameObject activeHint)
+    {
+        if (tutorialStepOne != null)
+        {
+            tutorialStepOne.SetActive(activeHint == tutorialStepOne);
+        }
+
+        if (tutorialStepTwoTarget != null)
+        {
+            tutorialStepTwoTarget.SetActive(
+                activeHint == tutorialStepTwoTarget);
         }
     }
 
