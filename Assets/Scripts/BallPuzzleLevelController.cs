@@ -257,11 +257,16 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         {
             if (mouse.leftButton.wasReleasedThisFrame)
             {
-                if (!pointerOverUi)
+                if (pointerOverUi)
                 {
-                    UpdatePendingPiece(pointerPosition);
+                    // Si se suelta sobre el panel, la pieza sigue vinculada
+                    // al cursor y no queda fijada todavía.
+                    placementState = PlacementState.Selected;
+                    status = "Move the cursor onto the board and click to set the piece.";
+                    return;
                 }
 
+                UpdatePendingPiece(pointerPosition);
                 FinishPendingPieceDrag();
                 return;
             }
@@ -269,6 +274,24 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
             if (mouse.leftButton.isPressed && !pointerOverUi)
             {
                 UpdatePendingPiece(pointerPosition);
+            }
+
+            return;
+        }
+
+        // Tras soltar la tarjeta, la pieza sigue al cursor sin otro clic.
+        if (placementState == PlacementState.Selected && !pointerOverUi)
+        {
+            pendingDragOffset = Vector3.zero;
+            UpdatePendingPiece(pointerPosition);
+
+            if (mouse.leftButton.wasPressedThisFrame)
+            {
+                FinishPendingPieceDrag();
+            }
+            else
+            {
+                status = "Move the piece and click to set its position.";
             }
 
             return;
@@ -329,7 +352,7 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         else
         {
             PositionPendingPieceAtStagingPoint();
-            status = "Click and hold the piece to drag it.";
+            status = "Move the cursor onto the board and click to set the piece.";
         }
     }
 
