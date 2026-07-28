@@ -99,6 +99,8 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
     [Header("Tutorial")]
     [SerializeField] private GameObject tutorialStepOne;
     [SerializeField] private GameObject tutorialStepTwoTarget;
+    [SerializeField] private SpriteRenderer tutorialStepTwoArrow;
+    [SerializeField] private GameObject tutorialRotationHighlight;
 
     private readonly List<CircuitPiece> placedPieces = new List<CircuitPiece>();
 
@@ -221,6 +223,7 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         if (state == LevelState.Build)
         {
             UpdateBuildMode();
+            UpdateTutorialStepTwoArrow();
         }
         else if (state == LevelState.Testing)
         {
@@ -485,7 +488,7 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         EvaluatePendingPlacement();
         if (pendingHasValidPosition)
         {
-            ShowTutorialHint(null);
+            ShowTutorialHint(tutorialRotationHighlight);
         }
 
         status = pendingHasValidPosition
@@ -636,6 +639,64 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
             tutorialStepTwoTarget.SetActive(
                 activeHint == tutorialStepTwoTarget);
         }
+
+        if (tutorialRotationHighlight != null)
+        {
+            tutorialRotationHighlight.SetActive(
+                activeHint == tutorialRotationHighlight);
+        }
+
+    }
+
+    private void UpdateTutorialStepTwoArrow()
+    {
+        if (tutorialStepTwoArrow == null)
+        {
+            return;
+        }
+
+        bool shouldShow =
+            pendingPiece != null &&
+            tutorialStepTwoTarget != null &&
+            tutorialStepTwoTarget.activeSelf &&
+            (placementState == PlacementState.Selected ||
+             placementState == PlacementState.Dragging);
+
+        if (tutorialStepTwoArrow.gameObject.activeSelf != shouldShow)
+        {
+            tutorialStepTwoArrow.gameObject.SetActive(shouldShow);
+        }
+
+        if (!shouldShow)
+        {
+            return;
+        }
+
+        // La flecha se mantiene sobre el tablero entre la pieza y el punto 2.
+        Vector3 start = pendingPiece.GetRenderBounds().center;
+        Vector3 end = tutorialStepTwoTarget.transform.position;
+        float arrowHeight = Mathf.Max(start.y, end.y) + PlacementHaloHeightOffset;
+        start.y = arrowHeight;
+        end.y = arrowHeight;
+
+        Vector3 direction = end - start;
+        float distance = direction.magnitude;
+        if (distance <= Mathf.Epsilon)
+        {
+            tutorialStepTwoArrow.gameObject.SetActive(false);
+            return;
+        }
+
+        direction /= distance;
+        Vector3 perpendicular = Vector3.Cross(Vector3.up, direction);
+        Vector3 spriteUp = (perpendicular - direction).normalized;
+
+        tutorialStepTwoArrow.transform.SetPositionAndRotation(
+            Vector3.Lerp(start, end, 0.5f),
+            Quaternion.LookRotation(Vector3.up, spriteUp));
+
+        float scale = Mathf.Clamp(distance / 3.6f, 0.35f, 1.3f);
+        tutorialStepTwoArrow.transform.localScale = Vector3.one * scale;
     }
 
     private void CreatePlacementIndicator()
@@ -1244,6 +1305,7 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         ApplyPendingRotationAroundPivot();
         RestPendingPieceOnBuildSurface();
         EvaluatePendingPlacement();
+        ShowTutorialHint(null);
         float angle = direction * rotationStep;
         status = "Rotated " + angle.ToString("+0;-0;0") +
                  " degrees around Y. Position unchanged.";
