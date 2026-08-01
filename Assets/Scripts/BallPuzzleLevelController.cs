@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.EventSystems;
@@ -20,6 +21,21 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
     private static readonly Color InteractionIndicatorColor = new Color(0.23f, 0.78f, 0.91f, 0.82f);
     private static readonly Color ValidPlacementIndicatorColor = new Color(0.31f, 0.84f, 0.60f, 0.82f);
     private static readonly Color InvalidPlacementIndicatorColor = new Color(0.95f, 0.42f, 0.42f, 0.82f);
+
+    public event Action<CircuitPiece> PlacementStarted;
+    public event Action<CircuitPiece, bool> PlacementPositioned;
+    public event Action<CircuitPiece> PieceRotated;
+    public event Action<CircuitPiece> PiecePlaced;
+    public event Action PlacementCancelled;
+    public event Action TestStarted;
+    public event Action LayoutReset;
+    public event Action LevelCompleted;
+
+    public int PlacedPieceCount => placedPieces.Count;
+    public bool IsPendingPieceMoving =>
+        pendingPiece != null &&
+        (placementState == PlacementState.Selected ||
+         placementState == PlacementState.Dragging);
 
     private enum LevelState
     {
@@ -96,12 +112,6 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
     [SerializeField] private PieceSelectionCard halfStraightPieceCard;
     [SerializeField] private PieceSelectionCard[] lockedPieceCards;
 
-    [Header("Tutorial")]
-    [SerializeField] private GameObject tutorialStepOne;
-    [SerializeField] private GameObject tutorialStepTwoTarget;
-    [SerializeField] private SpriteRenderer tutorialStepTwoArrow;
-    [SerializeField] private GameObject tutorialRotationHighlight;
-
     private readonly List<CircuitPiece> placedPieces = new List<CircuitPiece>();
 
     private Transform placedPiecesRoot;
@@ -156,9 +166,6 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         piecesRoot.transform.SetParent(transform, false);
         placedPiecesRoot = piecesRoot.transform;
         CreatePlacementIndicator();
-
-        // El tutorial empieza indicando qué pieza debe elegirse.
-        ShowTutorialHint(tutorialStepOne);
 
         straightRemaining = availableStraights;
         curveRemaining = availableCurves;
@@ -223,7 +230,6 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         if (state == LevelState.Build)
         {
             UpdateBuildMode();
-            UpdateTutorialStepTwoArrow();
         }
         else if (state == LevelState.Testing)
         {
@@ -326,9 +332,6 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         pendingPiece.name = prefab.DisplayName + " (pendiente)";
         pendingPiece.ClearTint();
 
-        // El segundo paso indica dónde puede soltarse la pieza.
-        ShowTutorialHint(tutorialStepTwoTarget);
-
         placementState = PlacementState.Selected;
         pendingRotationIndex = 0;
         pendingDragOffset = Vector3.zero;
@@ -357,6 +360,8 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
             PositionPendingPieceAtStagingPoint();
             status = "Move the cursor onto the board and click to set the piece.";
         }
+
+        PlacementStarted?.Invoke(pendingPiece);
     }
 
     private void PositionPendingPieceAtStagingPoint()
@@ -486,10 +491,7 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
 
         placementState = PlacementState.Positioned;
         EvaluatePendingPlacement();
-        if (pendingHasValidPosition)
-        {
-            ShowTutorialHint(tutorialRotationHighlight);
-        }
+        PlacementPositioned?.Invoke(pendingPiece, pendingHasValidPosition);
 
         status = pendingHasValidPosition
             ? "Valid position. You can rotate, drag again, or press PLACE."
@@ -594,7 +596,7 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         HidePlacementIndicator();
         placedPieces.Add(piece);
         ConsumePiece(piece);
-        ShowTutorialHint(null);
+        PiecePlaced?.Invoke(piece);
 
         pendingPiece = null;
         placementState = PlacementState.None;
@@ -619,84 +621,11 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         pendingDragOffset = Vector3.zero;
         pendingRotationPivotLocal = Vector3.zero;
         pendingHasValidPosition = false;
-        ShowTutorialHint(
-            placedPieces.Count == 0 ? tutorialStepOne : null);
+        PlacementCancelled?.Invoke();
         if (updateStatus)
         {
             status = "Placement cancelled.";
         }
-    }
-
-    private void ShowTutorialHint(GameObject activeHint)
-    {
-        if (tutorialStepOne != null)
-        {
-            tutorialStepOne.SetActive(activeHint == tutorialStepOne);
-        }
-
-        if (tutorialStepTwoTarget != null)
-        {
-            tutorialStepTwoTarget.SetActive(
-                activeHint == tutorialStepTwoTarget);
-        }
-
-        if (tutorialRotationHighlight != null)
-        {
-            tutorialRotationHighlight.SetActive(
-                activeHint == tutorialRotationHighlight);
-        }
-
-    }
-
-    private void UpdateTutorialStepTwoArrow()
-    {
-        if (tutorialStepTwoArrow == null)
-        {
-            return;
-        }
-
-        bool shouldShow =
-            pendingPiece != null &&
-            tutorialStepTwoTarget != null &&
-            tutorialStepTwoTarget.activeSelf &&
-            (placementState == PlacementState.Selected ||
-             placementState == PlacementState.Dragging);
-
-        if (tutorialStepTwoArrow.gameObject.activeSelf != shouldShow)
-        {
-            tutorialStepTwoArrow.gameObject.SetActive(shouldShow);
-        }
-
-        if (!shouldShow)
-        {
-            return;
-        }
-
-        // La flecha se mantiene sobre el tablero entre la pieza y el punto 2.
-        Vector3 start = pendingPiece.GetRenderBounds().center;
-        Vector3 end = tutorialStepTwoTarget.transform.position;
-        float arrowHeight = Mathf.Max(start.y, end.y) + PlacementHaloHeightOffset;
-        start.y = arrowHeight;
-        end.y = arrowHeight;
-
-        Vector3 direction = end - start;
-        float distance = direction.magnitude;
-        if (distance <= Mathf.Epsilon)
-        {
-            tutorialStepTwoArrow.gameObject.SetActive(false);
-            return;
-        }
-
-        direction /= distance;
-        Vector3 perpendicular = Vector3.Cross(Vector3.up, direction);
-        Vector3 spriteUp = (perpendicular - direction).normalized;
-
-        tutorialStepTwoArrow.transform.SetPositionAndRotation(
-            Vector3.Lerp(start, end, 0.5f),
-            Quaternion.LookRotation(Vector3.up, spriteUp));
-
-        float scale = Mathf.Clamp(distance / 3.6f, 0.35f, 1.3f);
-        tutorialStepTwoArrow.transform.localScale = Vector3.one * scale;
     }
 
     private void CreatePlacementIndicator()
@@ -848,6 +777,7 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         ball.linearVelocity = ballSpawnPoint.forward * launchSpeed;
         ball.WakeUp();
         status = "Test running: the ball must collect the prize.";
+        TestStarted?.Invoke();
     }
 
     private void UpdateBallTest()
@@ -898,6 +828,7 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         state = LevelState.Success;
         status = "Prize collected! Level complete.";
         prize.localScale = prizeInitialScale * 1.35f;
+        LevelCompleted?.Invoke();
     }
 
     private void RetryTest()
@@ -935,6 +866,7 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         prize.gameObject.SetActive(true);
         prize.localScale = prizeInitialScale;
         status = "Layout reset. Choose a piece to place it.";
+        LayoutReset?.Invoke();
     }
 
     private void FreezeBall()
@@ -1305,7 +1237,7 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         ApplyPendingRotationAroundPivot();
         RestPendingPieceOnBuildSurface();
         EvaluatePendingPlacement();
-        ShowTutorialHint(null);
+        PieceRotated?.Invoke(pendingPiece);
         float angle = direction * rotationStep;
         status = "Rotated " + angle.ToString("+0;-0;0") +
                  " degrees around Y. Position unchanged.";

@@ -57,6 +57,47 @@ public sealed class DraggableUIPanel : MonoBehaviour, IBeginDragHandler, IDragHa
         linkedPanel = panel != panelRect ? panel : null;
     }
 
+    public bool MoveToScreenPosition(Vector2 screenPosition)
+    {
+        if (panelRect == null)
+        {
+            panelRect = (RectTransform)transform;
+        }
+
+        if (rootCanvas == null)
+        {
+            rootCanvas = GetComponentInParent<Canvas>()?.rootCanvas;
+        }
+
+        RectTransform parentRect = panelRect.parent as RectTransform;
+        if (parentRect == null)
+        {
+            return false;
+        }
+
+        Camera eventCamera =
+            rootCanvas != null &&
+            rootCanvas.renderMode != RenderMode.ScreenSpaceOverlay
+                ? rootCanvas.worldCamera
+                : null;
+        if (!RectTransformUtility.ScreenPointToLocalPointInRectangle(
+                parentRect,
+                screenPosition,
+                eventCamera,
+                out Vector2 localPosition))
+        {
+            return false;
+        }
+
+        Vector3 currentPosition = panelRect.localPosition;
+        panelRect.localPosition = new Vector3(
+            localPosition.x,
+            localPosition.y,
+            currentPosition.z);
+        KeepInsideDragArea();
+        return true;
+    }
+
     private static bool IsPointerOverPieceCard(PointerEventData eventData)
     {
         GameObject pressedObject = eventData.pointerPressRaycast.gameObject;
