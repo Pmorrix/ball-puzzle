@@ -41,6 +41,7 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
     {
         Build,
         Testing,
+        Paused,
         Failure,
         Success
     }
@@ -85,6 +86,7 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
 
     [Header("UI")]
     [SerializeField] private GameObject buildControlsPanel;
+    [SerializeField] private GameObject buildActionsPanel;
     [SerializeField] private GameObject testingControlsPanel;
     [SerializeField] private GameObject resultPanel;
     [SerializeField] private GameObject rotationControlsPanel;
@@ -94,6 +96,7 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
     [SerializeField] private Button rotateYCounterClockwiseButton;
     [SerializeField] private Button placeButton;
     [SerializeField] private Button testButton;
+    [SerializeField] private Button pauseButton;
     [SerializeField] private Button resetButton;
     [SerializeField] private Button stopButton;
     [SerializeField] private Button retryButton;
@@ -101,6 +104,7 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
     [SerializeField] private Button resultResetButton;
     [SerializeField] private TMP_Text straightButtonLabel;
     [SerializeField] private TMP_Text curveButtonLabel;
+    [SerializeField] private TMP_Text pauseButtonLabel;
     [SerializeField] private TMP_Text testingLabel;
     [SerializeField] private TMP_Text statusLabel;
     [SerializeField] private TMP_Text inventoryStatusLabel;
@@ -134,6 +138,9 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
     private string status = "Choose a piece to start placing it.";
     private float testStartedAt;
     private float stoppedAt = -1f;
+    private float pauseStartedAt = -1f;
+    private Vector3 pausedLinearVelocity;
+    private Vector3 pausedAngularVelocity;
     private Vector3 prizeInitialScale;
 
     private void Awake()
@@ -604,7 +611,7 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         pendingDragOffset = Vector3.zero;
         pendingRotationPivotLocal = Vector3.zero;
         pendingHasValidPosition = false;
-        status = "Piece placed. Continue or press TEST.";
+        status = "Piece placed. Continue or press PLAY.";
     }
 
     private void CancelPendingPiece(bool updateStatus = true)
@@ -767,6 +774,7 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         state = LevelState.Testing;
         testStartedAt = Time.time;
         stoppedAt = -1f;
+        pauseStartedAt = -1f;
         prize.gameObject.SetActive(true);
         prize.localScale = prizeInitialScale;
 
@@ -778,6 +786,42 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         ball.WakeUp();
         status = "Test running: the ball must collect the prize.";
         TestStarted?.Invoke();
+    }
+
+    private void TogglePause()
+    {
+        if (state == LevelState.Testing)
+        {
+            // Conserva el movimiento para continuar desde el mismo punto.
+            pausedLinearVelocity = ball.linearVelocity;
+            pausedAngularVelocity = ball.angularVelocity;
+            FreezeBall();
+            pauseStartedAt = Time.time;
+            state = LevelState.Paused;
+            status = "PAUSED - press RESUME to continue.";
+            return;
+        }
+
+        if (state != LevelState.Paused)
+        {
+            return;
+        }
+
+        // Descuenta del test todo el tiempo que la bola estuvo pausada.
+        float pausedDuration = Time.time - pauseStartedAt;
+        testStartedAt += pausedDuration;
+        if (stoppedAt >= 0f)
+        {
+            stoppedAt += pausedDuration;
+        }
+
+        ball.isKinematic = false;
+        ball.linearVelocity = pausedLinearVelocity;
+        ball.angularVelocity = pausedAngularVelocity;
+        ball.WakeUp();
+        pauseStartedAt = -1f;
+        state = LevelState.Testing;
+        status = "Test running: the ball must collect the prize.";
     }
 
     private void UpdateBallTest()
@@ -844,7 +888,7 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         ResetBallForBuild();
         prize.gameObject.SetActive(true);
         prize.localScale = prizeInitialScale;
-        status = "Adjust the layout and press TEST again.";
+        status = "Adjust the layout and press PLAY again.";
     }
 
     private void ResetLayout()
@@ -887,6 +931,9 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         ball.isKinematic = true;
         ball.transform.SetPositionAndRotation(ballSpawnPoint.position, ballSpawnPoint.rotation);
         ball.gameObject.SetActive(true);
+        pauseStartedAt = -1f;
+        pausedLinearVelocity = Vector3.zero;
+        pausedAngularVelocity = Vector3.zero;
     }
 
     private void AnimatePrize()
@@ -1118,9 +1165,11 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
 
     private bool HasRequiredUi()
     {
-        return buildControlsPanel != null && testingControlsPanel != null && resultPanel != null &&
+        return buildControlsPanel != null && buildActionsPanel != null &&
+               testingControlsPanel != null && resultPanel != null &&
                rotationControlsPanel != null &&
                straightButton != null && curveButton != null && testButton != null &&
+               pauseButton != null && pauseButtonLabel != null &&
                rotateYButton != null && rotateYCounterClockwiseButton != null &&
                placeButton != null &&
                resetButton != null && stopButton != null && retryButton != null &&
@@ -1160,6 +1209,7 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         rotateYCounterClockwiseButton.onClick.AddListener(RotatePendingPieceYCounterClockwise);
         placeButton.onClick.AddListener(PlacePendingPiece);
         testButton.onClick.AddListener(StartBallTest);
+        pauseButton.onClick.AddListener(TogglePause);
         resetButton.onClick.AddListener(ResetLayout);
         stopButton.onClick.AddListener(ReturnToBuild);
         retryButton.onClick.AddListener(RetryTest);
@@ -1179,6 +1229,7 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         }
         if (placeButton != null) placeButton.onClick.RemoveListener(PlacePendingPiece);
         if (testButton != null) testButton.onClick.RemoveListener(StartBallTest);
+        if (pauseButton != null) pauseButton.onClick.RemoveListener(TogglePause);
         if (resetButton != null) resetButton.onClick.RemoveListener(ResetLayout);
         if (stopButton != null) stopButton.onClick.RemoveListener(ReturnToBuild);
         if (retryButton != null) retryButton.onClick.RemoveListener(RetryTest);
@@ -1262,10 +1313,14 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
 
         bool isBuilding = state == LevelState.Build;
         bool isTesting = state == LevelState.Testing;
+        bool isPaused = state == LevelState.Paused;
+        bool isTestActive = isTesting || isPaused;
         bool isShowingResult = state == LevelState.Failure || state == LevelState.Success;
 
-        buildControlsPanel.SetActive(isBuilding);
-        testingControlsPanel.SetActive(isTesting);
+        // El panel de piezas permanece visible mientras se prueba el recorrido.
+        buildControlsPanel.SetActive(isBuilding || isTestActive);
+        buildActionsPanel.SetActive(isBuilding || isTestActive);
+        testingControlsPanel.SetActive(false);
         resultPanel.SetActive(isShowingResult);
         rotationControlsPanel.SetActive(isBuilding);
         RefreshPaletteSummary();
@@ -1307,8 +1362,12 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
             card.SetState(unlocked, false, false, unlocked ? 1 : 0);
         }
 
-        testButton.interactable = pendingPiece == null && placedPieces.Count > 0;
-        resetButton.interactable = placedPieces.Count > 0 || pendingPiece != null;
+        testButton.interactable = isBuilding && pendingPiece == null && placedPieces.Count > 0;
+        pauseButton.interactable = isTestActive;
+        stopButton.interactable = isTestActive;
+        resetButton.interactable = (isBuilding || isTestActive) &&
+                                   (placedPieces.Count > 0 || pendingPiece != null);
+        pauseButtonLabel.text = isPaused ? "RESUME" : "PAUSE";
         bool canManipulatePendingPiece =
             isBuilding &&
             pendingPiece != null &&
@@ -1318,9 +1377,11 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         rotateYCounterClockwiseButton.interactable = canManipulatePendingPiece;
         placeButton.interactable = canManipulatePendingPiece && pendingHasValidPosition;
 
-        if (isTesting)
+        if (isTestActive)
         {
-            testingLabel.text = "TEST  " + (Time.time - testStartedAt).ToString("0.0") + " s";
+            float currentTestTime = isPaused ? pauseStartedAt : Time.time;
+            testingLabel.text = "TEST  " +
+                                (currentTestTime - testStartedAt).ToString("0.0") + " s";
         }
 
         if (isShowingResult)
@@ -1341,7 +1402,9 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         }
         else
         {
-            inventoryStatusLabel.text = isTesting ? "TEST RUNNING" : "RESULT";
+            inventoryStatusLabel.text = isPaused
+                ? "PAUSED"
+                : isTesting ? "TEST RUNNING" : "RESULT";
         }
     }
 
@@ -1470,6 +1533,9 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         PieceSelectionCard[] newLockedPieceCards)
     {
         buildControlsPanel = newBuildControlsPanel;
+        buildActionsPanel = newBuildControlsPanel != null
+            ? newBuildControlsPanel.transform.Find("Build Actions")?.gameObject
+            : null;
         testingControlsPanel = newTestingControlsPanel;
         resultPanel = newResultPanel;
         straightButton = newStraightButton;

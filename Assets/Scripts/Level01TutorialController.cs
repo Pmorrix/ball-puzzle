@@ -1,3 +1,4 @@
+using System.Collections;
 using UnityEngine;
 
 [DisallowMultipleComponent]
@@ -10,6 +11,13 @@ public sealed class Level01TutorialController : MonoBehaviour
     [SerializeField] private BallPuzzleLevelController levelController;
     [SerializeField] private Camera buildCamera;
     [SerializeField] private GameObject rotationControlsPanel;
+
+    [Header("Entrada del tutorial")]
+    [SerializeField] private GameObject launcherObject;
+    [SerializeField] private GameObject goalObject;
+    [SerializeField] private GameObject ballObject;
+    [SerializeField, Min(0.1f)] private float revealDuration = 0.6f;
+    [SerializeField, Min(0f)] private float goalDropHeight = 4f;
 
     [Header("Tutorial hints")]
     [SerializeField] private GameObject stepOneHint;
@@ -27,19 +35,27 @@ public sealed class Level01TutorialController : MonoBehaviour
     private bool subscribed;
     private bool tutorialCompleted;
     private bool firstConnectionCompleted;
+    private Vector3 launcherOriginalScale;
+    private Vector3 goalOriginalScale;
+    private Vector3 ballOriginalScale;
+    private Vector3 goalOriginalPosition;
 
     private void Awake()
     {
+        SaveIntroObjectScales();
         tutorialCompleted = PlayerPrefs.GetInt(CompletionKey, 0) != 0;
         if (tutorialCompleted)
         {
+            ShowIntroObjectsImmediately();
             HideAllHints();
             enabled = false;
             return;
         }
 
         if (levelController == null || buildCamera == null ||
-            rotationControlsPanel == null || connectionTarget == null)
+            rotationControlsPanel == null || connectionTarget == null ||
+            launcherObject == null || goalObject == null ||
+            ballObject == null)
         {
             Debug.LogError(
                 "Level01 tutorial: missing a required scene reference.",
@@ -52,6 +68,19 @@ public sealed class Level01TutorialController : MonoBehaviour
     private void OnEnable()
     {
         Subscribe();
+        HideAllHints();
+    }
+
+    private IEnumerator Start()
+    {
+        // Los tres objetos empiezan ocultos y aparecen en este orden.
+        HideObject(goalObject);
+        HideObject(launcherObject);
+        HideObject(ballObject);
+
+        yield return RevealGoal();
+        yield return RevealObject(launcherObject, launcherOriginalScale);
+        yield return RevealObject(ballObject, ballOriginalScale);
         ShowHint(stepOneHint);
     }
 
@@ -248,6 +277,103 @@ public sealed class Level01TutorialController : MonoBehaviour
         {
             stepTwoArrow.gameObject.SetActive(false);
         }
+    }
+
+    private void SaveIntroObjectScales()
+    {
+        if (launcherObject != null)
+        {
+            launcherOriginalScale = launcherObject.transform.localScale;
+        }
+
+        if (goalObject != null)
+        {
+            goalOriginalScale = goalObject.transform.localScale;
+            goalOriginalPosition = goalObject.transform.localPosition;
+        }
+
+        if (ballObject != null)
+        {
+            ballOriginalScale = ballObject.transform.localScale;
+        }
+    }
+
+    private void ShowIntroObjectsImmediately()
+    {
+        ShowObjectImmediately(launcherObject, launcherOriginalScale);
+        ShowObjectImmediately(goalObject, goalOriginalScale);
+        ShowObjectImmediately(ballObject, ballOriginalScale);
+
+        if (goalObject != null)
+        {
+            goalObject.transform.localPosition = goalOriginalPosition;
+        }
+    }
+
+    private static void HideObject(GameObject target)
+    {
+        target.transform.localScale = Vector3.zero;
+        target.SetActive(true);
+    }
+
+    private static void ShowObjectImmediately(
+        GameObject target,
+        Vector3 originalScale)
+    {
+        if (target == null)
+        {
+            return;
+        }
+
+        target.transform.localScale = originalScale;
+        target.SetActive(true);
+    }
+
+    private IEnumerator RevealObject(
+        GameObject target,
+        Vector3 originalScale)
+    {
+        float elapsedTime = 0f;
+        while (elapsedTime < revealDuration)
+        {
+            elapsedTime += Time.deltaTime;
+            float progress = Mathf.Clamp01(elapsedTime / revealDuration);
+            float smoothProgress = Mathf.SmoothStep(0f, 1f, progress);
+            target.transform.localScale = Vector3.Lerp(
+                Vector3.zero,
+                originalScale,
+                smoothProgress);
+            yield return null;
+        }
+
+        target.transform.localScale = originalScale;
+    }
+
+    private IEnumerator RevealGoal()
+    {
+        Transform goalTransform = goalObject.transform;
+        Vector3 startPosition =
+            goalOriginalPosition + Vector3.up * goalDropHeight;
+
+        goalTransform.localScale = goalOriginalScale;
+        goalTransform.localPosition = startPosition;
+
+        float elapsedTime = 0f;
+        while (elapsedTime < revealDuration)
+        {
+            elapsedTime += Time.deltaTime;
+            float progress = Mathf.Clamp01(elapsedTime / revealDuration);
+
+            // La aceleración hace que el movimiento parezca una caída.
+            float fallProgress = progress * progress;
+            goalTransform.localPosition = Vector3.Lerp(
+                startPosition,
+                goalOriginalPosition,
+                fallProgress);
+            yield return null;
+        }
+
+        goalTransform.localPosition = goalOriginalPosition;
     }
 
     private void UpdateStepTwoArrow()
