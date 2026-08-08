@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.InputSystem;
+using UnityEngine.SceneManagement;
 using UnityEngine.UI;
 using TMPro;
 
@@ -17,6 +18,9 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
     private const float PlacementHaloHeightOffset = 0.04f;
     private const float PlacementHaloPulseSpeed = 3.8f;
     private const float PlacementHaloPulseAmount = 0.06f;
+    private const string LastPlayedLevelKey = "BallPuzzleLastPlayedLevel";
+    private const string TotalCompletionTimeKey = "BallPuzzleTotalCompletionTime";
+    private const string LevelCompletionTimeKeyPrefix = "BallPuzzleCompletionTime.";
 
     private static readonly Color InteractionIndicatorColor = new Color(0.23f, 0.78f, 0.91f, 0.82f);
     private static readonly Color ValidPlacementIndicatorColor = new Color(0.31f, 0.84f, 0.60f, 0.82f);
@@ -70,6 +74,10 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
     [SerializeField, Min(0)] private int availableHalfStraights = 2;
     [SerializeField, Min(1f)] private float buildHalfSize = 16f;
     [SerializeField] private Vector2 buildAreaCenter = new Vector2(0f, 4f);
+
+    [Header("Level goals")]
+    [SerializeField, Min(1)] private int targetPieceCount = 3;
+    [SerializeField, Min(0.1f)] private float targetTestDuration = 6f;
 
     [Header("Piece placement")]
     [SerializeField, Min(0.01f)] private float placementGridSize = 0.05f;
@@ -136,15 +144,27 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
     private int halfStraightRemaining;
     private LevelState state = LevelState.Build;
     private string status = "Choose a piece to start placing it.";
+    private string resultMessage = string.Empty;
     private float testStartedAt;
+    private float lastTestDuration;
     private float stoppedAt = -1f;
     private float pauseStartedAt = -1f;
+    private bool hasTestDuration;
     private Vector3 pausedLinearVelocity;
     private Vector3 pausedAngularVelocity;
     private Vector3 prizeInitialScale;
 
     private void Awake()
     {
+        if (targetPieceCount <= 0)
+        {
+            targetPieceCount = 3;
+        }
+        if (targetTestDuration <= 0f)
+        {
+            targetTestDuration = 6f;
+        }
+
         if (buildCamera == null)
         {
             buildCamera = Camera.main;
@@ -160,6 +180,7 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
             return;
         }
 
+        RememberCurrentLevel();
         ApplyPieceCardActiveStates();
         EnablePanelDragging(rotationControlsPanel);
         GameObject piecePalettePanel = paletteSummaryLabel.transform.parent.gameObject;
@@ -180,6 +201,18 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         prizeInitialScale = prize.localScale;
         ResetBallForBuild();
         RefreshUi();
+    }
+
+    private static void RememberCurrentLevel()
+    {
+        string activeSceneName = SceneManager.GetActiveScene().name;
+        if (string.IsNullOrWhiteSpace(activeSceneName))
+        {
+            return;
+        }
+
+        PlayerPrefs.SetString(LastPlayedLevelKey, activeSceneName);
+        PlayerPrefs.Save();
     }
 
     private void OnDestroy()
@@ -773,8 +806,11 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
 
         state = LevelState.Testing;
         testStartedAt = Time.time;
+        lastTestDuration = 0f;
+        hasTestDuration = true;
         stoppedAt = -1f;
         pauseStartedAt = -1f;
+        resultMessage = string.Empty;
         prize.gameObject.SetActive(true);
         prize.localScale = prizeInitialScale;
 
@@ -861,16 +897,21 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
 
     private void FailTest(string reason)
     {
+        CaptureCurrentTestDuration();
         FreezeBall();
         state = LevelState.Failure;
         status = reason;
+        resultMessage = GetResultMessage();
     }
 
     private void CompleteLevel()
     {
+        CaptureCurrentTestDuration();
+        RegisterCompletedLevelTime();
         FreezeBall();
         state = LevelState.Success;
         status = "Prize collected! Level complete.";
+        resultMessage = GetResultMessage();
         prize.localScale = prizeInitialScale * 1.35f;
         LevelCompleted?.Invoke();
     }
@@ -884,6 +925,7 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
 
     private void ReturnToBuild()
     {
+        CaptureCurrentTestDuration();
         state = LevelState.Build;
         ResetBallForBuild();
         prize.gameObject.SetActive(true);
@@ -906,6 +948,9 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         curveRemaining = availableCurves;
         halfStraightRemaining = availableHalfStraights;
         state = LevelState.Build;
+        hasTestDuration = false;
+        lastTestDuration = 0f;
+        resultMessage = string.Empty;
         ResetBallForBuild();
         prize.gameObject.SetActive(true);
         prize.localScale = prizeInitialScale;
@@ -1323,6 +1368,7 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         testingControlsPanel.SetActive(false);
         resultPanel.SetActive(isShowingResult);
         rotationControlsPanel.SetActive(isBuilding);
+        buildControlsPanel.SetActive(isBuilding);
         RefreshPaletteSummary();
 
         bool straightSelected = pendingPiece != null && pendingPiece.PieceType == CircuitPieceType.Straight;
@@ -1387,25 +1433,17 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         if (isShowingResult)
         {
             resultTitleLabel.text = state == LevelState.Success
-                ? "LEVEL COMPLETE!"
-                : "TEST FAILED";
-            resultMessageLabel.text = status;
+                ? "GOAL"
+                : "FAIL";
+            resultMessageLabel.text = string.IsNullOrEmpty(resultMessage)
+                ? status
+                : resultMessage;
         }
 
         statusLabel.text = status;
-        if (isBuilding)
-        {
-            inventoryStatusLabel.text = GetInventoryStatus(
-                straightSelected,
-                halfStraightSelected,
-                curveSelected);
-        }
-        else
-        {
-            inventoryStatusLabel.text = isPaused
-                ? "PAUSED"
-                : isTesting ? "TEST RUNNING" : "RESULT";
-        }
+        inventoryStatusLabel.text = isTestActive || isShowingResult
+            ? GetElapsedTimeStatus()
+            : string.Empty;
     }
 
     private void ApplyPieceCardActiveStates()
@@ -1488,6 +1526,98 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         if (halfStraightActive) inventory.Add("HALF STRAIGHT x" + halfStraightRemaining);
         if (curveActive) inventory.Add("45° CURVE x" + curveRemaining);
         return inventory.Count > 0 ? string.Join("  |  ", inventory) : "NO PIECES AVAILABLE";
+    }
+
+    private string GetElapsedTimeStatus()
+    {
+        return hasTestDuration
+            ? "TIME ON ROAD: " +
+              GetDisplayedTestDuration().ToString("0.0") + " s"
+            : string.Empty;
+    }
+
+    private float GetDisplayedTestDuration()
+    {
+        if (!hasTestDuration)
+        {
+            return 0f;
+        }
+
+        if (state == LevelState.Testing)
+        {
+            return Mathf.Max(0f, Time.time - testStartedAt);
+        }
+
+        if (state == LevelState.Paused)
+        {
+            return Mathf.Max(0f, pauseStartedAt - testStartedAt);
+        }
+
+        return lastTestDuration;
+    }
+
+    private void CaptureCurrentTestDuration()
+    {
+        if (!hasTestDuration)
+        {
+            return;
+        }
+
+        if (state == LevelState.Testing || state == LevelState.Paused)
+        {
+            lastTestDuration = GetDisplayedTestDuration();
+        }
+    }
+
+    private string GetResultMessage()
+    {
+        return "Time: " + FormatTime(lastTestDuration) +
+               "\nTotal time: " + FormatTime(GetTotalCompletionTime()) +
+               "\nPieces used: " + placedPieces.Count + "/" + targetPieceCount;
+    }
+
+    private void RegisterCompletedLevelTime()
+    {
+        string sceneName = SceneManager.GetActiveScene().name;
+        if (string.IsNullOrWhiteSpace(sceneName))
+        {
+            return;
+        }
+
+        string levelTimeKey = LevelCompletionTimeKeyPrefix + sceneName;
+        float totalTime = GetTotalCompletionTime();
+
+        if (!PlayerPrefs.HasKey(levelTimeKey))
+        {
+            PlayerPrefs.SetFloat(levelTimeKey, lastTestDuration);
+            PlayerPrefs.SetFloat(TotalCompletionTimeKey, totalTime + lastTestDuration);
+            PlayerPrefs.Save();
+            return;
+        }
+
+        float previousLevelTime = Mathf.Max(
+            0f,
+            PlayerPrefs.GetFloat(levelTimeKey, lastTestDuration));
+        if (lastTestDuration >= previousLevelTime)
+        {
+            return;
+        }
+
+        PlayerPrefs.SetFloat(levelTimeKey, lastTestDuration);
+        PlayerPrefs.SetFloat(
+            TotalCompletionTimeKey,
+            Mathf.Max(0f, totalTime - previousLevelTime + lastTestDuration));
+        PlayerPrefs.Save();
+    }
+
+    private static float GetTotalCompletionTime()
+    {
+        return Mathf.Max(0f, PlayerPrefs.GetFloat(TotalCompletionTimeKey, 0f));
+    }
+
+    private static string FormatTime(float seconds)
+    {
+        return Mathf.Max(0f, seconds).ToString("0.0") + " s";
     }
 
 #if UNITY_EDITOR

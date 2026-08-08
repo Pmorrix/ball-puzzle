@@ -2463,6 +2463,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::MainMenuController
   firstLevelScene: Level01
   playButton: {fileID: 143129986}
+  continueButton: {fileID: 2200000005}
   controlsButton: {fileID: 772008933}
   creditsButton: {fileID: 1111781712}
   quitButton: {fileID: 1911705783}

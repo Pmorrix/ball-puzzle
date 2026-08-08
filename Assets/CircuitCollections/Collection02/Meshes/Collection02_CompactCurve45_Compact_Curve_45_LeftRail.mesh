@@ -6,7 +6,7 @@ Mesh:
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_Name: Compact Curve 45 Left Rail
+  m_Name: Collection02_CompactCurve45_Compact_Curve_45_LeftRail
   serializedVersion: 12
   m_SubMeshes:
   - serializedVersion: 2

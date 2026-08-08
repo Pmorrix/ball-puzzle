@@ -84,7 +84,22 @@ public sealed class PieceSelectionCard : MonoBehaviour,
 
     private void Awake()
     {
+        ResolveStateLabel();
         ApplyVisualsInstantly();
+    }
+
+    private void ResolveStateLabel()
+    {
+        if (stateLabel != null || visualRoot == null)
+        {
+            return;
+        }
+
+        Transform stateTransform = visualRoot.Find("State");
+        if (stateTransform != null)
+        {
+            stateLabel = stateTransform.GetComponent<TMP_Text>();
+        }
     }
 
     private void OnEnable()

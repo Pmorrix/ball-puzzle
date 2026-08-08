@@ -6,11 +6,14 @@ using UnityEngine.UI;
 [DisallowMultipleComponent]
 public sealed class MainMenuController : MonoBehaviour
 {
+    private const string LastPlayedLevelKey = "BallPuzzleLastPlayedLevel";
+
     [Header("Scene")]
     [SerializeField] private string firstLevelScene = "Level01";
 
     [Header("UI")]
     [SerializeField] private Button playButton;
+    [SerializeField] private Button continueButton;
     [SerializeField] private Button controlsButton;
     [SerializeField] private Button creditsButton;
     [SerializeField] private Button quitButton;
@@ -32,6 +35,7 @@ public sealed class MainMenuController : MonoBehaviour
         }
 
         playButton.onClick.AddListener(Play);
+        continueButton.onClick.AddListener(Continue);
         controlsButton.onClick.AddListener(ShowControls);
         creditsButton.onClick.AddListener(ShowCredits);
         quitButton.onClick.AddListener(Quit);
@@ -45,6 +49,11 @@ public sealed class MainMenuController : MonoBehaviour
         if (playButton != null)
         {
             playButton.onClick.RemoveListener(Play);
+        }
+
+        if (continueButton != null)
+        {
+            continueButton.onClick.RemoveListener(Continue);
         }
 
         if (controlsButton != null)
@@ -76,6 +85,7 @@ public sealed class MainMenuController : MonoBehaviour
     private bool HasRequiredUi()
     {
         return playButton != null &&
+               continueButton != null &&
                controlsButton != null &&
                creditsButton != null &&
                quitButton != null &&
@@ -88,13 +98,34 @@ public sealed class MainMenuController : MonoBehaviour
 
     private void Play()
     {
-        if (string.IsNullOrWhiteSpace(firstLevelScene))
+        LoadLevel(firstLevelScene);
+    }
+
+    private void Continue()
+    {
+        string lastPlayedLevel = PlayerPrefs.GetString(
+            LastPlayedLevelKey,
+            firstLevelScene);
+        LoadLevel(lastPlayedLevel);
+    }
+
+    private void LoadLevel(string sceneName)
+    {
+        if (string.IsNullOrWhiteSpace(sceneName))
         {
-            Debug.LogError("MainMenu: First Level Scene is empty.", this);
+            Debug.LogError("MainMenu: the target level scene is empty.", this);
             return;
         }
 
-        SceneManager.LoadScene(firstLevelScene);
+        if (!Application.CanStreamedLevelBeLoaded(sceneName))
+        {
+            Debug.LogError(
+                "MainMenu: scene '" + sceneName + "' is not available in Build Settings.",
+                this);
+            return;
+        }
+
+        SceneManager.LoadScene(sceneName);
     }
 
     private void ShowControls()
