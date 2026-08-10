@@ -139,6 +139,8 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
     private Vector3 pendingDragOffset;
     private Vector3 pendingRotationPivotLocal;
     private bool pendingHasValidPosition;
+    private bool isDraggingStructure;
+    private Vector3 structureDragOffset;
     private int straightRemaining;
     private int curveRemaining;
     private int halfStraightRemaining;
@@ -281,26 +283,61 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
 
     private void UpdateBuildMode()
     {
-        if (pendingPiece == null)
-        {
-            return;
-        }
-
         Mouse mouse = Mouse.current;
         if (mouse == null)
         {
             return;
         }
 
-        if (mouse.rightButton.wasPressedThisFrame)
+        bool pointerOverUi =
+            EventSystem.current != null && EventSystem.current.IsPointerOverGameObject();
+        Vector2 pointerPosition = mouse.position.ReadValue();
+
+        if (isDraggingStructure)
+        {
+            if (mouse.leftButton.wasReleasedThisFrame)
+            {
+                if (!pointerOverUi)
+                {
+                    UpdateStructurePosition(pointerPosition);
+                }
+
+                FinishStructureDrag();
+                return;
+            }
+
+            if (mouse.leftButton.isPressed && !pointerOverUi)
+            {
+                UpdateStructurePosition(pointerPosition);
+            }
+
+            return;
+        }
+
+        if (pendingPiece != null && mouse.rightButton.wasPressedThisFrame)
         {
             CancelPendingPiece();
             return;
         }
 
-        bool pointerOverUi =
-            EventSystem.current != null && EventSystem.current.IsPointerOverGameObject();
-        Vector2 pointerPosition = mouse.position.ReadValue();
+        if (CanBeginStructureDrag(mouse, pointerOverUi) &&
+            TryGetStructureDragOffset(pointerPosition, out structureDragOffset))
+        {
+            isDraggingStructure = true;
+            if (pendingPiece != null)
+            {
+                placementState = PlacementState.Dragging;
+            }
+
+            UpdateStructurePosition(pointerPosition);
+            status = "SHIFT: drag to move the complete structure.";
+            return;
+        }
+
+        if (pendingPiece == null)
+        {
+            return;
+        }
 
         if (placementState == PlacementState.Dragging)
         {
@@ -356,6 +393,165 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         placementState = PlacementState.Dragging;
         UpdatePendingPiece(pointerPosition);
         status = "Drag the piece and release the left mouse button to set its position.";
+    }
+
+    private bool CanBeginStructureDrag(Mouse mouse, bool pointerOverUi)
+    {
+        bool canMoveCurrentLayout =
+            pendingPiece == null || placementState == PlacementState.Positioned;
+        Keyboard keyboard = Keyboard.current;
+        bool shiftPressed = keyboard != null &&
+                            (keyboard.leftShiftKey.isPressed ||
+                             keyboard.rightShiftKey.isPressed);
+
+        return placedPieces.Count > 0 &&
+               canMoveCurrentLayout &&
+               shiftPressed &&
+               !pointerOverUi &&
+               mouse.leftButton.wasPressedThisFrame;
+    }
+
+    private bool TryGetStructureDragOffset(
+        Vector2 mousePosition,
+        out Vector3 dragOffset)
+    {
+        dragOffset = Vector3.zero;
+        if (placedPiecesRoot == null)
+        {
+            return false;
+        }
+
+        Ray ray = buildCamera.ScreenPointToRay(mousePosition);
+        RaycastHit[] hits = Physics.RaycastAll(
+            ray,
+            float.PositiveInfinity,
+            Physics.DefaultRaycastLayers,
+            QueryTriggerInteraction.Ignore);
+        bool hitStructure = false;
+
+        foreach (RaycastHit hit in hits)
+        {
+            if (hit.collider == null)
+            {
+                continue;
+            }
+
+            Transform hitTransform = hit.collider.transform;
+            if (hitTransform == placedPiecesRoot ||
+                hitTransform.IsChildOf(placedPiecesRoot))
+            {
+                hitStructure = true;
+                break;
+            }
+        }
+
+        if (!hitStructure ||
+            !TryGetBuildPoint(mousePosition, out Vector3 buildPoint))
+        {
+            return false;
+        }
+
+        dragOffset = placedPiecesRoot.position - buildPoint;
+        dragOffset.y = 0f;
+        return true;
+    }
+
+    private void UpdateStructurePosition(Vector2 mousePosition)
+    {
+        if (placedPiecesRoot == null ||
+            !TryGetBuildPoint(mousePosition, out Vector3 buildPoint))
+        {
+            return;
+        }
+
+        buildPoint += structureDragOffset;
+        Vector3 currentPosition = placedPiecesRoot.position;
+        Vector3 targetPosition = new Vector3(
+            SnapToGrid(buildPoint.x),
+            currentPosition.y,
+            SnapToGrid(buildPoint.z));
+        Vector3 translation = ClampStructureTranslation(
+            targetPosition - currentPosition);
+        placedPiecesRoot.position += translation;
+
+        if (pendingPiece != null)
+        {
+            EvaluatePendingPlacement();
+        }
+    }
+
+    private Vector3 ClampStructureTranslation(Vector3 translation)
+    {
+        translation.y = 0f;
+        if (!TryGetStructureBounds(out Bounds bounds))
+        {
+            return translation;
+        }
+
+        float minimumX = buildAreaCenter.x - buildHalfSize - bounds.min.x;
+        float maximumX = buildAreaCenter.x + buildHalfSize - bounds.max.x;
+        float minimumZ = buildAreaCenter.y - buildHalfSize - bounds.min.z;
+        float maximumZ = buildAreaCenter.y + buildHalfSize - bounds.max.z;
+
+        translation.x = minimumX <= maximumX
+            ? Mathf.Clamp(translation.x, minimumX, maximumX)
+            : 0f;
+        translation.z = minimumZ <= maximumZ
+            ? Mathf.Clamp(translation.z, minimumZ, maximumZ)
+            : 0f;
+        return translation;
+    }
+
+    private bool TryGetStructureBounds(out Bounds structureBounds)
+    {
+        structureBounds = new Bounds();
+        bool hasBounds = false;
+
+        foreach (CircuitPiece piece in placedPieces)
+        {
+            EncapsulatePieceBounds(piece, ref structureBounds, ref hasBounds);
+        }
+
+        EncapsulatePieceBounds(pendingPiece, ref structureBounds, ref hasBounds);
+        return hasBounds;
+    }
+
+    private static void EncapsulatePieceBounds(
+        CircuitPiece piece,
+        ref Bounds structureBounds,
+        ref bool hasBounds)
+    {
+        if (piece == null || !piece.gameObject.activeSelf)
+        {
+            return;
+        }
+
+        Bounds pieceBounds = piece.GetRenderBounds();
+        if (!hasBounds)
+        {
+            structureBounds = pieceBounds;
+            hasBounds = true;
+            return;
+        }
+
+        structureBounds.Encapsulate(pieceBounds);
+    }
+
+    private void FinishStructureDrag()
+    {
+        isDraggingStructure = false;
+        structureDragOffset = Vector3.zero;
+
+        if (pendingPiece != null && pendingPiece.gameObject.activeSelf)
+        {
+            FinishPendingPieceDrag(false);
+            status = pendingHasValidPosition
+                ? "Structure moved. You can rotate, drag again, or press PLACE."
+                : GetInvalidPlacementMessage();
+            return;
+        }
+
+        status = "Structure moved. Select another piece or press PLAY.";
     }
 
     private void BeginPlacement(
@@ -516,7 +712,7 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         SetPendingPlacementValidity(isInsideBuildArea && hasValidConnection);
     }
 
-    private void FinishPendingPieceDrag()
+    private void FinishPendingPieceDrag(bool alignToConnector = true)
     {
         if (pendingPiece == null || !pendingPiece.gameObject.activeSelf)
         {
@@ -524,7 +720,7 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
             return;
         }
 
-        if (placedPieces.Count > 0)
+        if (alignToConnector && placedPieces.Count > 0)
         {
             TryAlignPendingPieceToFreeConnector();
         }
@@ -644,7 +840,7 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         pendingDragOffset = Vector3.zero;
         pendingRotationPivotLocal = Vector3.zero;
         pendingHasValidPosition = false;
-        status = "Piece placed. Continue or press PLAY.";
+        status = "Piece placed. Hold SHIFT and drag any placed piece to move the structure.";
     }
 
     private void CancelPendingPiece(bool updateStatus = true)
@@ -661,6 +857,8 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         pendingDragOffset = Vector3.zero;
         pendingRotationPivotLocal = Vector3.zero;
         pendingHasValidPosition = false;
+        isDraggingStructure = false;
+        structureDragOffset = Vector3.zero;
         PlacementCancelled?.Invoke();
         if (updateStatus)
         {
@@ -944,6 +1142,10 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
             }
         }
         placedPieces.Clear();
+        if (placedPiecesRoot != null)
+        {
+            placedPiecesRoot.localPosition = Vector3.zero;
+        }
         straightRemaining = availableStraights;
         curveRemaining = availableCurves;
         halfStraightRemaining = availableHalfStraights;
