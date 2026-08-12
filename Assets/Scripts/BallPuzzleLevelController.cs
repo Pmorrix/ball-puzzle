@@ -98,6 +98,9 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
     [SerializeField] private GameObject testingControlsPanel;
     [SerializeField] private GameObject resultPanel;
     [SerializeField] private GameObject rotationControlsPanel;
+    [SerializeField] private GameObject playConfirmationDialog;
+    [SerializeField] private Button confirmPlayButton;
+    [SerializeField] private Button cancelPlayButton;
     [SerializeField] private Button straightButton;
     [SerializeField] private Button curveButton;
     [SerializeField] private Button rotateYButton;
@@ -141,6 +144,8 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
     private bool pendingHasValidPosition;
     private bool isDraggingStructure;
     private Vector3 structureDragOffset;
+    private Vector3 structureDragStartPosition;
+    private Vector3 structureDragPrizeStartPosition;
     private int straightRemaining;
     private int curveRemaining;
     private int halfStraightRemaining;
@@ -155,6 +160,10 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
     private Vector3 pausedLinearVelocity;
     private Vector3 pausedAngularVelocity;
     private Vector3 prizeInitialScale;
+    private Vector3 prizeInitialPosition;
+    private CircuitPiece adjustedGoalPiece;
+    private int adjustedGoalConnectorIndex = -1;
+    private bool hasAdjustedGoal;
 
     private void Awake()
     {
@@ -190,6 +199,7 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         LinkDraggablePanels(
             piecePalettePanel,
             topBar != null ? topBar.gameObject : null);
+        HidePlayConfirmationDialog();
         WireUiEvents();
 
         GameObject piecesRoot = new GameObject("Placed Puzzle Pieces");
@@ -201,6 +211,7 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         curveRemaining = availableCurves;
         halfStraightRemaining = availableHalfStraights;
         prizeInitialScale = prize.localScale;
+        prizeInitialPosition = prize.position;
         ResetBallForBuild();
         RefreshUi();
     }
@@ -323,6 +334,8 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         if (CanBeginStructureDrag(mouse, pointerOverUi) &&
             TryGetStructureDragOffset(pointerPosition, out structureDragOffset))
         {
+            structureDragStartPosition = placedPiecesRoot.position;
+            structureDragPrizeStartPosition = prize.position;
             isDraggingStructure = true;
             if (pendingPiece != null)
             {
@@ -473,6 +486,7 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         Vector3 translation = ClampStructureTranslation(
             targetPosition - currentPosition);
         placedPiecesRoot.position += translation;
+        RecalculateAdjustedGoalPosition();
 
         if (pendingPiece != null)
         {
@@ -541,6 +555,25 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
     {
         isDraggingStructure = false;
         structureDragOffset = Vector3.zero;
+        bool alignedWithStart = TryAlignPlacedStructureToAnchors();
+        bool hasRequiredAnchorAlignment =
+            alignedWithStart &&
+            HasRequiredAnchorAlignment(false);
+        if (!hasRequiredAnchorAlignment)
+        {
+            placedPiecesRoot.position = structureDragStartPosition;
+            prize.position = structureDragPrizeStartPosition;
+            RecalculateAdjustedGoalPosition();
+            if (pendingPiece != null && pendingPiece.gameObject.activeSelf)
+            {
+                FinishPendingPieceDrag(false);
+            }
+
+            status = "The structure must remain centered on START.";
+            return;
+        }
+
+        ReevaluateAdjustedGoalBinding();
 
         if (pendingPiece != null && pendingPiece.gameObject.activeSelf)
         {
@@ -552,6 +585,476 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         }
 
         status = "Structure moved. Select another piece or press PLAY.";
+    }
+
+    private bool TryAlignPlacedStructureToAnchors(bool includePendingPiece = false)
+    {
+        if (placedPiecesRoot == null)
+        {
+            return false;
+        }
+
+        bool foundAlignment = false;
+        int bestAnchorMatchCount = 0;
+        float closestDistance = float.PositiveInfinity;
+        Vector3 bestOffset = Vector3.zero;
+
+        EvaluateStructureAnchorOffsets(
+            startAnchor,
+            includePendingPiece,
+            ref foundAlignment,
+            ref bestAnchorMatchCount,
+            ref closestDistance,
+            ref bestOffset);
+        if (!foundAlignment)
+        {
+            return false;
+        }
+
+        Vector3 clampedOffset = ClampStructureTranslation(bestOffset);
+        if ((clampedOffset - bestOffset).sqrMagnitude > 0.000001f)
+        {
+            return false;
+        }
+
+        placedPiecesRoot.position += clampedOffset;
+        RecalculateAdjustedGoalPosition();
+        return true;
+    }
+
+    private void EvaluateStructureAnchorOffsets(
+        Transform anchor,
+        bool includePendingPiece,
+        ref bool foundAlignment,
+        ref int bestAnchorMatchCount,
+        ref float closestDistance,
+        ref Vector3 bestOffset)
+    {
+        if (anchor == null)
+        {
+            return;
+        }
+
+        int pieceCount = GetStructurePieceCount(includePendingPiece);
+        for (int pieceIndex = 0; pieceIndex < pieceCount; pieceIndex++)
+        {
+            CircuitPiece piece = GetStructurePiece(pieceIndex);
+            if (piece == null || !piece.gameObject.activeSelf)
+            {
+                continue;
+            }
+
+            for (int connector = 0;
+                 connector < piece.ConnectorCount;
+                 connector++)
+            {
+                if (piece == adjustedGoalPiece &&
+                    connector == adjustedGoalConnectorIndex)
+                {
+                    continue;
+                }
+
+                if (IsStructureConnectorOccupied(
+                        piece,
+                        connector,
+                        includePendingPiece))
+                {
+                    continue;
+                }
+
+                Vector3 offset =
+                    anchor.position - piece.GetConnectorPosition(connector);
+                offset.y = 0f;
+                float distance = offset.magnitude;
+                if (distance > GetAnchorAlignmentAssistDistance())
+                {
+                    continue;
+                }
+
+                int anchorMatchCount = CountAlignedStructureAnchors(
+                    offset,
+                    includePendingPiece);
+                if (foundAlignment &&
+                    (anchorMatchCount < bestAnchorMatchCount ||
+                     anchorMatchCount == bestAnchorMatchCount &&
+                     distance >= closestDistance))
+                {
+                    continue;
+                }
+
+                foundAlignment = true;
+                bestAnchorMatchCount = anchorMatchCount;
+                closestDistance = distance;
+                bestOffset = offset;
+            }
+        }
+    }
+
+    private int CountAlignedStructureAnchors(
+        Vector3 positionOffset,
+        bool includePendingPiece)
+    {
+        return HasOpenStructureConnectorAt(
+            startAnchor,
+            positionOffset,
+            includePendingPiece)
+            ? 1
+            : 0;
+    }
+
+    private bool HasOpenStructureConnectorAt(
+        Transform anchor,
+        Vector3 positionOffset,
+        bool includePendingPiece = false)
+    {
+        if (anchor == null)
+        {
+            return false;
+        }
+
+        int pieceCount = GetStructurePieceCount(includePendingPiece);
+        for (int pieceIndex = 0; pieceIndex < pieceCount; pieceIndex++)
+        {
+            CircuitPiece piece = GetStructurePiece(pieceIndex);
+            if (piece == null || !piece.gameObject.activeSelf)
+            {
+                continue;
+            }
+
+            for (int connector = 0;
+                 connector < piece.ConnectorCount;
+                 connector++)
+            {
+                if (!IsStructureConnectorOccupied(
+                        piece,
+                        connector,
+                        includePendingPiece) &&
+                    HorizontalDistance(
+                        piece.GetConnectorPosition(connector) + positionOffset,
+                        anchor.position) <= ConnectionPositionTolerance)
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private bool IsStructureConnectorOccupied(
+        CircuitPiece piece,
+        int connector,
+        bool includePendingPiece = false)
+    {
+        int pieceCount = GetStructurePieceCount(includePendingPiece);
+        for (int pieceIndex = 0; pieceIndex < pieceCount; pieceIndex++)
+        {
+            CircuitPiece otherPiece = GetStructurePiece(pieceIndex);
+            if (otherPiece == null ||
+                !otherPiece.gameObject.activeSelf ||
+                otherPiece == piece)
+            {
+                continue;
+            }
+
+            for (int otherConnector = 0;
+                 otherConnector < otherPiece.ConnectorCount;
+                 otherConnector++)
+            {
+                if (AreConnectorsAligned(
+                        piece,
+                        connector,
+                        otherPiece,
+                        otherConnector))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private int GetStructurePieceCount(bool includePendingPiece = false)
+    {
+        bool hasIncludedPendingPiece = pendingPiece != null &&
+                                       pendingPiece.gameObject.activeSelf &&
+                                       (includePendingPiece || pendingHasValidPosition);
+        return placedPieces.Count + (hasIncludedPendingPiece ? 1 : 0);
+    }
+
+    private CircuitPiece GetStructurePiece(int index)
+    {
+        return index < placedPieces.Count
+            ? placedPieces[index]
+            : pendingPiece;
+    }
+
+    private bool HasRequiredAnchorAlignment(bool includePendingPiece)
+    {
+        return HasOpenStructureConnectorAt(
+            startAnchor,
+            Vector3.zero,
+            includePendingPiece);
+    }
+
+    private bool HasCompleteAnchorAlignment()
+    {
+        return HasOpenStructureConnectorAt(startAnchor, Vector3.zero) &&
+               HasValidAdjustedGoal();
+    }
+
+    private void ReevaluateAdjustedGoalBinding()
+    {
+        if (TryGetBoundGoalCenter(out Vector3 boundCenter))
+        {
+            ApplyAdjustedGoalPosition(boundCenter);
+            hasAdjustedGoal = true;
+            return;
+        }
+
+        adjustedGoalPiece = null;
+        adjustedGoalConnectorIndex = -1;
+        if (TryGetClosestFreeGoalCandidate(
+                out CircuitPiece candidatePiece,
+                out int candidateConnector,
+                out Vector3 candidateCenter))
+        {
+            adjustedGoalPiece = candidatePiece;
+            adjustedGoalConnectorIndex = candidateConnector;
+            ApplyAdjustedGoalPosition(candidateCenter);
+            hasAdjustedGoal = true;
+            return;
+        }
+
+        RestoreInitialGoalPosition();
+    }
+
+    private void RecalculateAdjustedGoalPosition()
+    {
+        if (TryGetStoredGoalCenter(out Vector3 worldCenter))
+        {
+            ApplyAdjustedGoalPosition(worldCenter);
+            return;
+        }
+
+        RestoreInitialGoalPosition();
+    }
+
+    private void ApplyAdjustedGoalPosition(Vector3 worldCenter)
+    {
+        if (prize == null)
+        {
+            return;
+        }
+
+        Vector3 position = prize.position;
+        position.x = worldCenter.x;
+        position.z = worldCenter.z;
+        prize.position = position;
+    }
+
+    private bool HasValidAdjustedGoal()
+    {
+        if (!hasAdjustedGoal || !TryGetBoundGoalCenter(out Vector3 worldCenter))
+        {
+            return false;
+        }
+
+        return HorizontalDistance(prize.position, worldCenter) <=
+               ConnectionPositionTolerance;
+    }
+
+    private bool TryGetBoundGoalCenter(out Vector3 worldCenter)
+    {
+        if (!TryGetStoredGoalCenter(out worldCenter) ||
+            !IsPieceConnectedToStart(adjustedGoalPiece))
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+    private bool TryGetStoredGoalCenter(out Vector3 worldCenter)
+    {
+        worldCenter = Vector3.zero;
+        if (adjustedGoalPiece == null ||
+            !adjustedGoalPiece.gameObject.activeSelf ||
+            !placedPieces.Contains(adjustedGoalPiece) ||
+            adjustedGoalConnectorIndex < 0 ||
+            adjustedGoalConnectorIndex >= adjustedGoalPiece.ConnectorCount)
+        {
+            return false;
+        }
+
+        worldCenter = adjustedGoalPiece.GetConnectorPosition(
+            adjustedGoalConnectorIndex);
+        return true;
+    }
+
+    private bool TryGetClosestFreeGoalCandidate(
+        out CircuitPiece candidatePiece,
+        out int candidateConnector,
+        out Vector3 candidateCenter)
+    {
+        candidatePiece = null;
+        candidateConnector = -1;
+        candidateCenter = Vector3.zero;
+        float closestDistance = float.PositiveInfinity;
+        float assistDistance = GetAnchorAlignmentAssistDistance();
+        HashSet<CircuitPiece> startComponent = GetStartConnectedPieces();
+
+        foreach (CircuitPiece piece in startComponent)
+        {
+            if (piece == null)
+            {
+                continue;
+            }
+
+            for (int connector = 0;
+                 connector < piece.ConnectorCount;
+                 connector++)
+            {
+                if (IsPlacedConnectorOccupied(piece, connector))
+                {
+                    continue;
+                }
+
+                Vector3 connectorPosition =
+                    piece.GetConnectorPosition(connector);
+                if (startAnchor != null &&
+                    HorizontalDistance(
+                        connectorPosition,
+                        startAnchor.position) <= ConnectionPositionTolerance)
+                {
+                    continue;
+                }
+
+                float distance = HorizontalDistance(
+                    connectorPosition,
+                    prizeInitialPosition);
+                if (distance > assistDistance ||
+                    distance >= closestDistance)
+                {
+                    continue;
+                }
+
+                candidatePiece = piece;
+                candidateConnector = connector;
+                candidateCenter = connectorPosition;
+                closestDistance = distance;
+            }
+        }
+
+        return candidatePiece != null;
+    }
+
+    private bool IsPieceConnectedToStart(CircuitPiece piece)
+    {
+        return piece != null && GetStartConnectedPieces().Contains(piece);
+    }
+
+    private HashSet<CircuitPiece> GetStartConnectedPieces()
+    {
+        HashSet<CircuitPiece> visited = new HashSet<CircuitPiece>();
+        Queue<CircuitPiece> pending = new Queue<CircuitPiece>();
+
+        foreach (CircuitPiece piece in placedPieces)
+        {
+            if (piece == null || !HasOpenConnectorAtStart(piece))
+            {
+                continue;
+            }
+
+            visited.Add(piece);
+            pending.Enqueue(piece);
+        }
+
+        while (pending.Count > 0)
+        {
+            CircuitPiece current = pending.Dequeue();
+            foreach (CircuitPiece other in placedPieces)
+            {
+                if (other == null ||
+                    visited.Contains(other) ||
+                    !ArePiecesConnected(current, other))
+                {
+                    continue;
+                }
+
+                visited.Add(other);
+                pending.Enqueue(other);
+            }
+        }
+
+        return visited;
+    }
+
+    private void RestoreInitialGoalPosition()
+    {
+        hasAdjustedGoal = false;
+        if (prize != null)
+        {
+            prize.position = prizeInitialPosition;
+        }
+    }
+
+    private bool HasOpenConnectorAtStart(CircuitPiece piece)
+    {
+        if (piece == null || startAnchor == null)
+        {
+            return false;
+        }
+
+        for (int connector = 0;
+             connector < piece.ConnectorCount;
+             connector++)
+        {
+            if (!IsPlacedConnectorOccupied(piece, connector) &&
+                HorizontalDistance(
+                    piece.GetConnectorPosition(connector),
+                    startAnchor.position) <= ConnectionPositionTolerance)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool ArePiecesConnected(
+        CircuitPiece firstPiece,
+        CircuitPiece secondPiece)
+    {
+        for (int firstConnector = 0;
+             firstConnector < firstPiece.ConnectorCount;
+             firstConnector++)
+        {
+            for (int secondConnector = 0;
+                 secondConnector < secondPiece.ConnectorCount;
+                 secondConnector++)
+            {
+                if (AreConnectorsAligned(
+                        firstPiece,
+                        firstConnector,
+                        secondPiece,
+                        secondConnector))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private float GetAnchorAlignmentAssistDistance()
+    {
+        return Mathf.Max(
+                   connectionReleaseAssistDistance * 2f,
+                   placementGridSize * 2f) +
+               ConnectionPositionTolerance;
     }
 
     private void BeginPlacement(
@@ -709,7 +1212,11 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
 
         bool isInsideBuildArea = IsInsideBuildArea(pendingPiece);
         bool hasValidConnection = placedPieces.Count == 0 || HasValidConnection(pendingPiece);
-        SetPendingPlacementValidity(isInsideBuildArea && hasValidConnection);
+        bool hasRequiredAnchorAlignment = HasRequiredAnchorAlignment(true);
+        SetPendingPlacementValidity(
+            isInsideBuildArea &&
+            hasValidConnection &&
+            hasRequiredAnchorAlignment);
     }
 
     private void FinishPendingPieceDrag(bool alignToConnector = true)
@@ -720,9 +1227,15 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
             return;
         }
 
-        if (alignToConnector && placedPieces.Count > 0)
+        if (alignToConnector)
         {
-            TryAlignPendingPieceToFreeConnector();
+            TryAlignPendingPieceToConnectionTarget();
+            if (placedPieces.Count > 0 &&
+                IsInsideBuildArea(pendingPiece) &&
+                HasValidConnection(pendingPiece))
+            {
+                TryAlignPlacedStructureToAnchors(true);
+            }
         }
 
         placementState = PlacementState.Positioned;
@@ -781,6 +1294,16 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
 
     private string GetInvalidPlacementMessage()
     {
+        if (!HasOpenStructureConnectorAt(
+                startAnchor,
+                Vector3.zero,
+                true))
+        {
+            return placedPieces.Count == 0
+                ? "The first piece must be centered on START."
+                : "The track must remain centered on START.";
+        }
+
         return placedPieces.Count == 0
             ? "The first piece must remain completely inside the board."
             : "The piece must connect correctly to an open endpoint.";
@@ -820,6 +1343,7 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
             return;
         }
 
+        EvaluatePendingPlacement();
         if (!pendingHasValidPosition)
         {
             status = GetInvalidPlacementMessage();
@@ -832,6 +1356,7 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         HidePlacementIndicator();
         placedPieces.Add(piece);
         ConsumePiece(piece);
+        ReevaluateAdjustedGoalBinding();
         PiecePlaced?.Invoke(piece);
 
         pendingPiece = null;
@@ -840,7 +1365,9 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         pendingDragOffset = Vector3.zero;
         pendingRotationPivotLocal = Vector3.zero;
         pendingHasValidPosition = false;
-        status = "Piece placed. Hold SHIFT and drag any placed piece to move the structure.";
+        status = adjustedGoalPiece == piece && hasAdjustedGoal
+            ? "Final piece placed. GOAL centered on the track."
+            : "Piece placed. Hold SHIFT and drag any placed piece to move the structure.";
     }
 
     private void CancelPendingPiece(bool updateStatus = true)
@@ -989,6 +1516,44 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         }
     }
 
+    private void RequestStartBallTest()
+    {
+        if (state != LevelState.Build ||
+            pendingPiece != null ||
+            placedPieces.Count == 0)
+        {
+            StartBallTest();
+            return;
+        }
+
+        ReevaluateAdjustedGoalBinding();
+        if (!HasCompleteAnchorAlignment() ||
+            playConfirmationDialog == null ||
+            confirmPlayButton == null ||
+            cancelPlayButton == null)
+        {
+            StartBallTest();
+            return;
+        }
+
+        playConfirmationDialog.SetActive(true);
+        playConfirmationDialog.transform.SetAsLastSibling();
+    }
+
+    private void ConfirmStartBallTest()
+    {
+        HidePlayConfirmationDialog();
+        StartBallTest();
+    }
+
+    private void HidePlayConfirmationDialog()
+    {
+        if (playConfirmationDialog != null)
+        {
+            playConfirmationDialog.SetActive(false);
+        }
+    }
+
     private void StartBallTest()
     {
         if (state != LevelState.Build || pendingPiece != null)
@@ -1134,6 +1699,10 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
     private void ResetLayout()
     {
         CancelPendingPiece(false);
+        adjustedGoalPiece = null;
+        adjustedGoalConnectorIndex = -1;
+        hasAdjustedGoal = false;
+        prize.position = prizeInitialPosition;
         foreach (CircuitPiece piece in placedPieces)
         {
             if (piece != null)
@@ -1249,8 +1818,20 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         return false;
     }
 
-    private bool TryAlignPendingPieceToFreeConnector()
+    private bool TryAlignPendingPieceToConnectionTarget()
     {
+        if (pendingPiece == null)
+        {
+            return false;
+        }
+
+        if (placedPieces.Count == 0 &&
+            TryGetClosestAnchorOffset(startAnchor, out Vector3 startOffset))
+        {
+            ApplyPendingPieceOffset(startOffset);
+            return true;
+        }
+
         bool foundConnection = false;
         float closestDistance = float.PositiveInfinity;
         Vector3 bestOffset = Vector3.zero;
@@ -1305,9 +1886,48 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
             return false;
         }
 
-        pendingPiece.transform.position += bestOffset;
-        RestPendingPieceOnBuildSurface();
+        ApplyPendingPieceOffset(bestOffset);
         return true;
+    }
+
+    private bool TryGetClosestAnchorOffset(
+        Transform anchor,
+        out Vector3 bestOffset)
+    {
+        bestOffset = Vector3.zero;
+        if (anchor == null)
+        {
+            return false;
+        }
+
+        bool foundAnchor = false;
+        float closestDistance = float.PositiveInfinity;
+        for (int connector = 0;
+             connector < pendingPiece.ConnectorCount;
+             connector++)
+        {
+            Vector3 offset =
+                anchor.position - pendingPiece.GetConnectorPosition(connector);
+            offset.y = 0f;
+            float distance = offset.magnitude;
+            if (distance > GetAnchorAlignmentAssistDistance() ||
+                distance >= closestDistance)
+            {
+                continue;
+            }
+
+            foundAnchor = true;
+            closestDistance = distance;
+            bestOffset = offset;
+        }
+
+        return foundAnchor;
+    }
+
+    private void ApplyPendingPieceOffset(Vector3 offset)
+    {
+        pendingPiece.transform.position += offset;
+        RestPendingPieceOnBuildSurface();
     }
 
     private bool IsPlacedConnectorOccupied(CircuitPiece piece, int connector)
@@ -1610,7 +2230,9 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
             card.SetState(unlocked, false, false, unlocked ? 1 : 0);
         }
 
-        testButton.interactable = isBuilding && pendingPiece == null && placedPieces.Count > 0;
+        testButton.interactable = isBuilding &&
+                                  pendingPiece == null &&
+                                  placedPieces.Count > 0;
         pauseButton.interactable = isTestActive;
         stopButton.interactable = isTestActive;
         resetButton.interactable = (isBuilding || isTestActive) &&

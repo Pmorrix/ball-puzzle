@@ -9,7 +9,7 @@ public sealed class MainMenuController : MonoBehaviour
     private const string LastPlayedLevelKey = "BallPuzzleLastPlayedLevel";
 
     [Header("Scene")]
-    [SerializeField] private string firstLevelScene = "Level01";
+    [SerializeField] private string firstLevelScene = "Level01video";
 
     [Header("UI")]
     [SerializeField] private Button playButton;
@@ -98,6 +98,8 @@ public sealed class MainMenuController : MonoBehaviour
 
     private void Play()
     {
+        PlayerPrefs.DeleteAll();
+        PlayerPrefs.Save();
         LoadLevel(firstLevelScene);
     }
 
@@ -106,6 +108,17 @@ public sealed class MainMenuController : MonoBehaviour
         string lastPlayedLevel = PlayerPrefs.GetString(
             LastPlayedLevelKey,
             firstLevelScene);
+
+        if (string.IsNullOrWhiteSpace(lastPlayedLevel) ||
+            !Application.CanStreamedLevelBeLoaded(lastPlayedLevel))
+        {
+            Debug.LogWarning(
+                "MainMenu: the saved level is unavailable. Loading '" +
+                firstLevelScene + "' instead.",
+                this);
+            lastPlayedLevel = firstLevelScene;
+        }
+
         LoadLevel(lastPlayedLevel);
     }
 
