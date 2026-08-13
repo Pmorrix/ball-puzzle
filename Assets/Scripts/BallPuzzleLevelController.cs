@@ -142,10 +142,6 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
     private Vector3 pendingDragOffset;
     private Vector3 pendingRotationPivotLocal;
     private bool pendingHasValidPosition;
-    private bool isDraggingStructure;
-    private Vector3 structureDragOffset;
-    private Vector3 structureDragStartPosition;
-    private Vector3 structureDragPrizeStartPosition;
     private int straightRemaining;
     private int curveRemaining;
     private int halfStraightRemaining;
@@ -304,46 +300,9 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
             EventSystem.current != null && EventSystem.current.IsPointerOverGameObject();
         Vector2 pointerPosition = mouse.position.ReadValue();
 
-        if (isDraggingStructure)
-        {
-            if (mouse.leftButton.wasReleasedThisFrame)
-            {
-                if (!pointerOverUi)
-                {
-                    UpdateStructurePosition(pointerPosition);
-                }
-
-                FinishStructureDrag();
-                return;
-            }
-
-            if (mouse.leftButton.isPressed && !pointerOverUi)
-            {
-                UpdateStructurePosition(pointerPosition);
-            }
-
-            return;
-        }
-
         if (pendingPiece != null && mouse.rightButton.wasPressedThisFrame)
         {
             CancelPendingPiece();
-            return;
-        }
-
-        if (CanBeginStructureDrag(mouse, pointerOverUi) &&
-            TryGetStructureDragOffset(pointerPosition, out structureDragOffset))
-        {
-            structureDragStartPosition = placedPiecesRoot.position;
-            structureDragPrizeStartPosition = prize.position;
-            isDraggingStructure = true;
-            if (pendingPiece != null)
-            {
-                placementState = PlacementState.Dragging;
-            }
-
-            UpdateStructurePosition(pointerPosition);
-            status = "SHIFT: drag to move the complete structure.";
             return;
         }
 
@@ -408,92 +367,6 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         status = "Drag the piece and release the left mouse button to set its position.";
     }
 
-    private bool CanBeginStructureDrag(Mouse mouse, bool pointerOverUi)
-    {
-        bool canMoveCurrentLayout =
-            pendingPiece == null || placementState == PlacementState.Positioned;
-        Keyboard keyboard = Keyboard.current;
-        bool shiftPressed = keyboard != null &&
-                            (keyboard.leftShiftKey.isPressed ||
-                             keyboard.rightShiftKey.isPressed);
-
-        return placedPieces.Count > 0 &&
-               canMoveCurrentLayout &&
-               shiftPressed &&
-               !pointerOverUi &&
-               mouse.leftButton.wasPressedThisFrame;
-    }
-
-    private bool TryGetStructureDragOffset(
-        Vector2 mousePosition,
-        out Vector3 dragOffset)
-    {
-        dragOffset = Vector3.zero;
-        if (placedPiecesRoot == null)
-        {
-            return false;
-        }
-
-        Ray ray = buildCamera.ScreenPointToRay(mousePosition);
-        RaycastHit[] hits = Physics.RaycastAll(
-            ray,
-            float.PositiveInfinity,
-            Physics.DefaultRaycastLayers,
-            QueryTriggerInteraction.Ignore);
-        bool hitStructure = false;
-
-        foreach (RaycastHit hit in hits)
-        {
-            if (hit.collider == null)
-            {
-                continue;
-            }
-
-            Transform hitTransform = hit.collider.transform;
-            if (hitTransform == placedPiecesRoot ||
-                hitTransform.IsChildOf(placedPiecesRoot))
-            {
-                hitStructure = true;
-                break;
-            }
-        }
-
-        if (!hitStructure ||
-            !TryGetBuildPoint(mousePosition, out Vector3 buildPoint))
-        {
-            return false;
-        }
-
-        dragOffset = placedPiecesRoot.position - buildPoint;
-        dragOffset.y = 0f;
-        return true;
-    }
-
-    private void UpdateStructurePosition(Vector2 mousePosition)
-    {
-        if (placedPiecesRoot == null ||
-            !TryGetBuildPoint(mousePosition, out Vector3 buildPoint))
-        {
-            return;
-        }
-
-        buildPoint += structureDragOffset;
-        Vector3 currentPosition = placedPiecesRoot.position;
-        Vector3 targetPosition = new Vector3(
-            SnapToGrid(buildPoint.x),
-            currentPosition.y,
-            SnapToGrid(buildPoint.z));
-        Vector3 translation = ClampStructureTranslation(
-            targetPosition - currentPosition);
-        placedPiecesRoot.position += translation;
-        RecalculateAdjustedGoalPosition();
-
-        if (pendingPiece != null)
-        {
-            EvaluatePendingPlacement();
-        }
-    }
-
     private Vector3 ClampStructureTranslation(Vector3 translation)
     {
         translation.y = 0f;
@@ -549,42 +422,6 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         }
 
         structureBounds.Encapsulate(pieceBounds);
-    }
-
-    private void FinishStructureDrag()
-    {
-        isDraggingStructure = false;
-        structureDragOffset = Vector3.zero;
-        bool alignedWithStart = TryAlignPlacedStructureToAnchors();
-        bool hasRequiredAnchorAlignment =
-            alignedWithStart &&
-            HasRequiredAnchorAlignment(false);
-        if (!hasRequiredAnchorAlignment)
-        {
-            placedPiecesRoot.position = structureDragStartPosition;
-            prize.position = structureDragPrizeStartPosition;
-            RecalculateAdjustedGoalPosition();
-            if (pendingPiece != null && pendingPiece.gameObject.activeSelf)
-            {
-                FinishPendingPieceDrag(false);
-            }
-
-            status = "The structure must remain centered on START.";
-            return;
-        }
-
-        ReevaluateAdjustedGoalBinding();
-
-        if (pendingPiece != null && pendingPiece.gameObject.activeSelf)
-        {
-            FinishPendingPieceDrag(false);
-            status = pendingHasValidPosition
-                ? "Structure moved. You can rotate, drag again, or press PLACE."
-                : GetInvalidPlacementMessage();
-            return;
-        }
-
-        status = "Structure moved. Select another piece or press PLAY.";
     }
 
     private bool TryAlignPlacedStructureToAnchors(bool includePendingPiece = false)
@@ -1219,7 +1056,7 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
             hasRequiredAnchorAlignment);
     }
 
-    private void FinishPendingPieceDrag(bool alignToConnector = true)
+    private void FinishPendingPieceDrag()
     {
         if (pendingPiece == null || !pendingPiece.gameObject.activeSelf)
         {
@@ -1227,15 +1064,12 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
             return;
         }
 
-        if (alignToConnector)
+        TryAlignPendingPieceToConnectionTarget();
+        if (placedPieces.Count > 0 &&
+            IsInsideBuildArea(pendingPiece) &&
+            HasValidConnection(pendingPiece))
         {
-            TryAlignPendingPieceToConnectionTarget();
-            if (placedPieces.Count > 0 &&
-                IsInsideBuildArea(pendingPiece) &&
-                HasValidConnection(pendingPiece))
-            {
-                TryAlignPlacedStructureToAnchors(true);
-            }
+            TryAlignPlacedStructureToAnchors(true);
         }
 
         placementState = PlacementState.Positioned;
@@ -1367,7 +1201,7 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         pendingHasValidPosition = false;
         status = adjustedGoalPiece == piece && hasAdjustedGoal
             ? "Final piece placed. GOAL centered on the track."
-            : "Piece placed. Hold SHIFT and drag any placed piece to move the structure.";
+            : "Piece placed. Continue or press PLAY.";
     }
 
     private void CancelPendingPiece(bool updateStatus = true)
@@ -1384,8 +1218,6 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         pendingDragOffset = Vector3.zero;
         pendingRotationPivotLocal = Vector3.zero;
         pendingHasValidPosition = false;
-        isDraggingStructure = false;
-        structureDragOffset = Vector3.zero;
         PlacementCancelled?.Invoke();
         if (updateStatus)
         {
