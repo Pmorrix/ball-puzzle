@@ -1358,9 +1358,7 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
             return;
         }
 
-        ReevaluateAdjustedGoalBinding();
-        if (!HasCompleteAnchorAlignment() ||
-            playConfirmationDialog == null ||
+        if (playConfirmationDialog == null ||
             confirmPlayButton == null ||
             cancelPlayButton == null)
         {
@@ -1413,10 +1411,46 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         ball.transform.SetPositionAndRotation(ballSpawnPoint.position, ballSpawnPoint.rotation);
         ball.isKinematic = false;
         ball.angularVelocity = Vector3.zero;
-        ball.linearVelocity = ballSpawnPoint.forward * launchSpeed;
+        ball.linearVelocity = GetBallLaunchDirection() * launchSpeed;
         ball.WakeUp();
         status = "Test running: the ball must collect the prize.";
         TestStarted?.Invoke();
+    }
+
+    private Vector3 GetBallLaunchDirection()
+    {
+        if (startAnchor != null)
+        {
+            foreach (CircuitPiece piece in placedPieces)
+            {
+                if (piece == null || !piece.gameObject.activeSelf)
+                {
+                    continue;
+                }
+
+                for (int connector = 0;
+                     connector < piece.ConnectorCount;
+                     connector++)
+                {
+                    if (IsPlacedConnectorOccupied(piece, connector) ||
+                        HorizontalDistance(
+                            piece.GetConnectorPosition(connector),
+                            startAnchor.position) > ConnectionPositionTolerance)
+                    {
+                        continue;
+                    }
+
+                    Vector3 launchDirection =
+                        -Flatten(piece.GetConnectorDirection(connector));
+                    if (launchDirection.sqrMagnitude > Mathf.Epsilon)
+                    {
+                        return launchDirection;
+                    }
+                }
+            }
+        }
+
+        return ballSpawnPoint.forward;
     }
 
     private void TogglePause()
@@ -1526,6 +1560,12 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         prize.gameObject.SetActive(true);
         prize.localScale = prizeInitialScale;
         status = "Adjust the layout and press PLAY again.";
+    }
+
+    private void ExitToMainMenu()
+    {
+        Time.timeScale = 1f;
+        SceneManager.LoadScene("MainMenu");
     }
 
     private void ResetLayout()
@@ -1907,13 +1947,20 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         rotateYButton.onClick.AddListener(RotatePendingPieceY);
         rotateYCounterClockwiseButton.onClick.AddListener(RotatePendingPieceYCounterClockwise);
         placeButton.onClick.AddListener(PlacePendingPiece);
-        testButton.onClick.AddListener(StartBallTest);
+        testButton.onClick.AddListener(RequestStartBallTest);
+        if (confirmPlayButton != null)
+        {
+            confirmPlayButton.onClick.AddListener(ConfirmStartBallTest);
+        }
+        if (cancelPlayButton != null)
+        {
+            cancelPlayButton.onClick.AddListener(HidePlayConfirmationDialog);
+        }
         pauseButton.onClick.AddListener(TogglePause);
         resetButton.onClick.AddListener(ResetLayout);
         stopButton.onClick.AddListener(ReturnToBuild);
-        retryButton.onClick.AddListener(RetryTest);
-        editButton.onClick.AddListener(ReturnToBuild);
-        resultResetButton.onClick.AddListener(ResetLayout);
+        retryButton.onClick.AddListener(ReturnToBuild);
+        editButton.onClick.AddListener(ExitToMainMenu);
     }
 
     private void UnwireUiEvents()
@@ -1927,13 +1974,20 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
             rotateYCounterClockwiseButton.onClick.RemoveListener(RotatePendingPieceYCounterClockwise);
         }
         if (placeButton != null) placeButton.onClick.RemoveListener(PlacePendingPiece);
-        if (testButton != null) testButton.onClick.RemoveListener(StartBallTest);
+        if (testButton != null) testButton.onClick.RemoveListener(RequestStartBallTest);
+        if (confirmPlayButton != null)
+        {
+            confirmPlayButton.onClick.RemoveListener(ConfirmStartBallTest);
+        }
+        if (cancelPlayButton != null)
+        {
+            cancelPlayButton.onClick.RemoveListener(HidePlayConfirmationDialog);
+        }
         if (pauseButton != null) pauseButton.onClick.RemoveListener(TogglePause);
         if (resetButton != null) resetButton.onClick.RemoveListener(ResetLayout);
         if (stopButton != null) stopButton.onClick.RemoveListener(ReturnToBuild);
-        if (retryButton != null) retryButton.onClick.RemoveListener(RetryTest);
-        if (editButton != null) editButton.onClick.RemoveListener(ReturnToBuild);
-        if (resultResetButton != null) resultResetButton.onClick.RemoveListener(ResetLayout);
+        if (retryButton != null) retryButton.onClick.RemoveListener(ReturnToBuild);
+        if (editButton != null) editButton.onClick.RemoveListener(ExitToMainMenu);
     }
 
     private void SelectStraightPiece()
@@ -2088,12 +2142,14 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
 
         if (isShowingResult)
         {
-            resultTitleLabel.text = state == LevelState.Success
+            bool reachedGoal = state == LevelState.Success;
+            resultTitleLabel.text = reachedGoal
                 ? "GOAL"
                 : "FAIL";
             resultMessageLabel.text = string.IsNullOrEmpty(resultMessage)
                 ? status
                 : resultMessage;
+            editButton.gameObject.SetActive(!reachedGoal);
         }
 
         statusLabel.text = status;
@@ -2227,9 +2283,8 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
 
     private string GetResultMessage()
     {
-        return "Time: " + FormatTime(lastTestDuration) +
-               "\nTotal time: " + FormatTime(GetTotalCompletionTime()) +
-               "\nPieces used: " + placedPieces.Count + "/" + targetPieceCount;
+        return "TIME  " + FormatTime(lastTestDuration) +
+               "\nPIECES  " + placedPieces.Count + " / " + targetPieceCount;
     }
 
     private void RegisterCompletedLevelTime()

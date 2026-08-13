@@ -138,10 +138,25 @@ public sealed class Level01VideoReplayController : MonoBehaviour
 
     [Header("Cinematic effects")]
     [SerializeField] private bool enablePostProcessing = true;
-    [SerializeField] private bool enableBallTrail;
-    [SerializeField, Range(0.01f, 0.06f)] private float trailWidth = 0.045f;
-    [SerializeField, Range(0.1f, 0.5f)] private float trailLifetime = 0.45f;
-    [SerializeField, Min(0f)] private float ballLightIntensity = 5f;
+    [SerializeField] private bool enableBallParticles = true;
+    [SerializeField] private bool showRecordedPathGlow;
+    [SerializeField, Range(10f, 180f)] private float particleEmissionRate = 160f;
+    [SerializeField, Range(0.2f, 1.5f)] private float particleLifetime = 1.15f;
+    [SerializeField, Range(0.03f, 0.25f)] private float particleSize = 0.16f;
+    [SerializeField, Range(0f, 1.5f)] private float particleSpeed = 0.42f;
+    [SerializeField, Range(0.01f, 0.3f)] private float particleSpread = 0.1f;
+    [SerializeField, Range(0f, 0.5f)] private float particleRiseSpeed = 0.18f;
+    [SerializeField, Range(0f, 2f)] private float particleTurnBoost = 1f;
+    [SerializeField, ColorUsage(true, true)] private Color particleHotColor =
+        new Color(3.2f, 2.2f, 0.35f, 1f);
+    [SerializeField, ColorUsage(true, true)] private Color particleFlameColor =
+        new Color(3f, 0.55f, 0.04f, 1f);
+    [SerializeField, ColorUsage(true, true)] private Color particleEmberColor =
+        new Color(0.55f, 0.015f, 0.005f, 0f);
+    [SerializeField] private Color ballLightColor = new Color(1f, 0.26f, 0.035f);
+    [SerializeField, Min(0f)] private float ballLightIntensity = 8.5f;
+    [SerializeField, Range(0f, 2f)] private float particleBloomIntensity = 0.95f;
+    [SerializeField, Range(0f, 3f)] private float particleCurveBloomIntensity = 1.5f;
 
     [Header("Temporary last result viewer")]
     [SerializeField] private bool playStoredReplayOnStart;
@@ -200,8 +215,10 @@ public sealed class Level01VideoReplayController : MonoBehaviour
     private bool hasWorkshopBackgroundSnapshot;
 
     private Material cinematicMaterial;
-    private GameObject trailObject;
-    private TrailRenderer ballTrail;
+    private GameObject particleObject;
+    private ParticleSystem ballParticles;
+    private Material particleMaterial;
+    private Texture2D particleTexture;
     private GameObject pathLineObject;
     private LineRenderer pathLine;
     private GameObject ballLightObject;
@@ -248,8 +265,18 @@ public sealed class Level01VideoReplayController : MonoBehaviour
     {
         minimumSamples = Mathf.Clamp(minimumSamples, 2, 4);
         minimumReplayDistance = Mathf.Clamp(minimumReplayDistance, 0.05f, 0.25f);
-        trailWidth = Mathf.Clamp(trailWidth, 0.01f, 0.06f);
-        trailLifetime = Mathf.Clamp(trailLifetime, 0.1f, 0.5f);
+        particleEmissionRate = Mathf.Clamp(particleEmissionRate, 10f, 180f);
+        particleLifetime = Mathf.Clamp(particleLifetime, 0.2f, 1.5f);
+        particleSize = Mathf.Clamp(particleSize, 0.03f, 0.25f);
+        particleSpeed = Mathf.Clamp(particleSpeed, 0f, 1.5f);
+        particleSpread = Mathf.Clamp(particleSpread, 0.01f, 0.3f);
+        particleRiseSpeed = Mathf.Clamp(particleRiseSpeed, 0f, 0.5f);
+        particleTurnBoost = Mathf.Clamp(particleTurnBoost, 0f, 2f);
+        particleBloomIntensity = Mathf.Clamp(particleBloomIntensity, 0f, 2f);
+        particleCurveBloomIntensity = Mathf.Clamp(
+            particleCurveBloomIntensity,
+            particleBloomIntensity,
+            3f);
     }
 
     private void Start()
@@ -574,10 +601,10 @@ public sealed class Level01VideoReplayController : MonoBehaviour
         replaying = true;
 
         ApplyReplayFrame(0f, true);
-        if (ballTrail != null)
+        if (ballParticles != null)
         {
-            ballTrail.Clear();
-            ballTrail.emitting = true;
+            ballParticles.Clear(true);
+            ballParticles.Play(true);
         }
         yield return null;
 
@@ -1424,11 +1451,14 @@ public sealed class Level01VideoReplayController : MonoBehaviour
     private void CreateCinematicEffects()
     {
         CreateCinematicMaterial();
-        if (enableBallTrail)
+        if (enableBallParticles)
         {
-            CreateBallTrail();
+            CreateBallParticles();
         }
-        CreatePathLine();
+        if (showRecordedPathGlow)
+        {
+            CreatePathLine();
+        }
         CreateBallLight();
         CreatePostProcessing();
     }
@@ -1451,46 +1481,207 @@ public sealed class Level01VideoReplayController : MonoBehaviour
         };
     }
 
-    private void CreateBallTrail()
+    private void CreateBallParticles()
     {
-        if (cinematicMaterial == null)
+        CreateParticleMaterial();
+        if (particleMaterial == null)
         {
             return;
         }
 
-        trailObject = new GameObject("Cinematic Ball Trail");
-        trailObject.transform.SetParent(ball.transform, false);
-        ballTrail = trailObject.AddComponent<TrailRenderer>();
-        ballTrail.sharedMaterial = cinematicMaterial;
-        ballTrail.time = trailLifetime;
-        ballTrail.minVertexDistance = 0.025f;
-        ballTrail.numCornerVertices = 3;
-        ballTrail.numCapVertices = 3;
-        ballTrail.widthCurve = new AnimationCurve(
-            new Keyframe(0f, trailWidth),
-            new Keyframe(0.35f, trailWidth * 0.55f),
-            new Keyframe(1f, 0f));
-        ballTrail.colorGradient = CreateTrailGradient();
-        ballTrail.shadowCastingMode = ShadowCastingMode.Off;
-        ballTrail.receiveShadows = false;
-        ballTrail.emitting = false;
+        particleObject = new GameObject("Cinematic Fire Particles");
+        particleObject.transform.SetParent(ball.transform, false);
+        ballParticles = particleObject.AddComponent<ParticleSystem>();
+
+        ParticleSystem.MainModule main = ballParticles.main;
+        main.loop = true;
+        main.playOnAwake = false;
+        main.simulationSpace = ParticleSystemSimulationSpace.World;
+        main.startLifetime = new ParticleSystem.MinMaxCurve(
+            particleLifetime * 0.55f,
+            particleLifetime);
+        main.startSpeed = new ParticleSystem.MinMaxCurve(
+            particleSpeed * 0.2f,
+            particleSpeed);
+        main.startSize = new ParticleSystem.MinMaxCurve(
+            particleSize * 0.28f,
+            particleSize);
+        main.startRotation = new ParticleSystem.MinMaxCurve(0f, Mathf.PI * 2f);
+        main.startColor = Color.white;
+        main.gravityModifier = 0f;
+        main.maxParticles = Mathf.CeilToInt(
+            particleEmissionRate * particleLifetime * (2.5f + particleTurnBoost));
+        main.cullingMode = ParticleSystemCullingMode.AlwaysSimulate;
+
+        ParticleSystem.EmissionModule emission = ballParticles.emission;
+        emission.rateOverTime = particleEmissionRate;
+
+        ParticleSystem.ShapeModule shape = ballParticles.shape;
+        shape.enabled = true;
+        shape.shapeType = ParticleSystemShapeType.Sphere;
+        shape.radius = particleSpread;
+        shape.radiusThickness = 1f;
+
+        ParticleSystem.ColorOverLifetimeModule colorOverLifetime =
+            ballParticles.colorOverLifetime;
+        colorOverLifetime.enabled = true;
+        colorOverLifetime.color = CreateFireParticleGradient();
+
+        ParticleSystem.SizeOverLifetimeModule sizeOverLifetime =
+            ballParticles.sizeOverLifetime;
+        sizeOverLifetime.enabled = true;
+        sizeOverLifetime.size = new ParticleSystem.MinMaxCurve(
+            1f,
+            new AnimationCurve(
+                new Keyframe(0f, 0.3f),
+                new Keyframe(0.1f, 1f),
+                new Keyframe(0.62f, 0.55f),
+                new Keyframe(1f, 0f)));
+
+        ParticleSystem.VelocityOverLifetimeModule velocity =
+            ballParticles.velocityOverLifetime;
+        velocity.enabled = true;
+        velocity.space = ParticleSystemSimulationSpace.World;
+        velocity.y = particleRiseSpeed;
+
+        ParticleSystem.NoiseModule noise = ballParticles.noise;
+        noise.enabled = true;
+        noise.quality = ParticleSystemNoiseQuality.High;
+        noise.strength = particleSpread * 1.6f;
+        noise.frequency = 1.35f;
+        noise.scrollSpeed = 0.4f;
+        noise.damping = true;
+        noise.octaveCount = 2;
+
+        ParticleSystem.RotationOverLifetimeModule rotation =
+            ballParticles.rotationOverLifetime;
+        rotation.enabled = true;
+        rotation.z = new ParticleSystem.MinMaxCurve(-2.5f, 2.5f);
+
+        ParticleSystemRenderer particleRenderer =
+            particleObject.GetComponent<ParticleSystemRenderer>();
+        particleRenderer.sharedMaterial = particleMaterial;
+        particleRenderer.renderMode = ParticleSystemRenderMode.Billboard;
+        particleRenderer.alignment = ParticleSystemRenderSpace.View;
+        particleRenderer.sortMode = ParticleSystemSortMode.Distance;
+        particleRenderer.sortingOrder = 2;
+        particleRenderer.shadowCastingMode = ShadowCastingMode.Off;
+        particleRenderer.receiveShadows = false;
+        ballParticles.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
     }
 
-    private static Gradient CreateTrailGradient()
+    private void CreateParticleMaterial()
+    {
+        Shader shader = Shader.Find("Universal Render Pipeline/Particles/Unlit");
+        if (shader == null)
+        {
+            shader = Shader.Find("Particles/Standard Unlit");
+        }
+        if (shader == null)
+        {
+            shader = Shader.Find("Sprites/Default");
+        }
+        if (shader == null)
+        {
+            return;
+        }
+
+        particleTexture = CreateSoftParticleTexture();
+        particleMaterial = new Material(shader)
+        {
+            name = "Level01video Fire Particles",
+            renderQueue = (int)RenderQueue.Transparent
+        };
+
+        if (particleMaterial.HasProperty("_BaseMap"))
+        {
+            particleMaterial.SetTexture("_BaseMap", particleTexture);
+        }
+        if (particleMaterial.HasProperty("_MainTex"))
+        {
+            particleMaterial.SetTexture("_MainTex", particleTexture);
+        }
+        if (particleMaterial.HasProperty("_Surface"))
+        {
+            particleMaterial.SetFloat("_Surface", 1f);
+        }
+        if (particleMaterial.HasProperty("_Blend"))
+        {
+            particleMaterial.SetFloat("_Blend", 2f);
+        }
+        if (particleMaterial.HasProperty("_Mode"))
+        {
+            particleMaterial.SetFloat("_Mode", 4f);
+        }
+        if (particleMaterial.HasProperty("_SrcBlend"))
+        {
+            particleMaterial.SetFloat("_SrcBlend", (float)BlendMode.SrcAlpha);
+        }
+        if (particleMaterial.HasProperty("_DstBlend"))
+        {
+            particleMaterial.SetFloat("_DstBlend", (float)BlendMode.One);
+        }
+        if (particleMaterial.HasProperty("_ZWrite"))
+        {
+            particleMaterial.SetFloat("_ZWrite", 0f);
+        }
+        particleMaterial.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
+        particleMaterial.EnableKeyword("_ALPHABLEND_ON");
+    }
+
+    private static Texture2D CreateSoftParticleTexture()
+    {
+        const int textureSize = 32;
+        Texture2D texture = new Texture2D(
+            textureSize,
+            textureSize,
+            TextureFormat.RGBA32,
+            false,
+            true)
+        {
+            name = "Level01video Soft Fire Particle",
+            wrapMode = TextureWrapMode.Clamp,
+            filterMode = FilterMode.Bilinear
+        };
+
+        Color[] pixels = new Color[textureSize * textureSize];
+        for (int y = 0; y < textureSize; y++)
+        {
+            for (int x = 0; x < textureSize; x++)
+            {
+                Vector2 point = new Vector2(
+                    (x + 0.5f) / textureSize * 2f - 1f,
+                    (y + 0.5f) / textureSize * 2f - 1f);
+                float alpha = Mathf.Pow(
+                    Mathf.Clamp01(1f - point.magnitude),
+                    1.35f);
+                pixels[y * textureSize + x] = new Color(1f, 1f, 1f, alpha);
+            }
+        }
+
+        texture.SetPixels(pixels);
+        texture.Apply(false, true);
+        return texture;
+    }
+
+    private Gradient CreateFireParticleGradient()
     {
         Gradient gradient = new Gradient();
         gradient.SetKeys(
             new[]
             {
-                new GradientColorKey(Color.white, 0f),
-                new GradientColorKey(new Color(0.15f, 0.95f, 1f), 0.35f),
-                new GradientColorKey(new Color(0.08f, 0.42f, 1f), 1f)
+                new GradientColorKey(particleHotColor, 0f),
+                new GradientColorKey(particleHotColor, 0.18f),
+                new GradientColorKey(particleFlameColor, 0.48f),
+                new GradientColorKey(particleEmberColor, 1f)
             },
             new[]
             {
-                new GradientAlphaKey(0.65f, 0f),
-                new GradientAlphaKey(0.25f, 0.4f),
-                new GradientAlphaKey(0f, 1f)
+                new GradientAlphaKey(particleHotColor.a, 0f),
+                new GradientAlphaKey(0.95f, 0.25f),
+                new GradientAlphaKey(0.62f, 0.62f),
+                new GradientAlphaKey(0.16f, 0.86f),
+                new GradientAlphaKey(particleEmberColor.a, 1f)
             });
         return gradient;
     }
@@ -1570,7 +1761,7 @@ public sealed class Level01VideoReplayController : MonoBehaviour
         ballLightObject.transform.SetParent(ball.transform, false);
         ballLight = ballLightObject.AddComponent<Light>();
         ballLight.type = LightType.Point;
-        ballLight.color = new Color(0.18f, 0.9f, 1f);
+        ballLight.color = ballLightColor;
         ballLight.intensity = ballLightIntensity;
         ballLight.range = 6f;
         ballLight.shadows = LightShadows.None;
@@ -1595,9 +1786,9 @@ public sealed class Level01VideoReplayController : MonoBehaviour
         volume.sharedProfile = volumeProfile;
 
         bloom = volumeProfile.Add<Bloom>(true);
-        bloom.threshold.Override(0.75f);
-        bloom.intensity.Override(0.62f);
-        bloom.scatter.Override(0.7f);
+        bloom.threshold.Override(0.5f);
+        bloom.intensity.Override(particleBloomIntensity);
+        bloom.scatter.Override(0.76f);
 
         vignette = volumeProfile.Add<Vignette>(true);
         vignette.color.Override(new Color(0.005f, 0.012f, 0.035f));
@@ -1637,9 +1828,26 @@ public sealed class Level01VideoReplayController : MonoBehaviour
             ballLight.range = Mathf.Lerp(6f, 8f, turnStrength);
         }
 
+        if (ballParticles != null)
+        {
+            ParticleSystem.EmissionModule emission = ballParticles.emission;
+            emission.rateOverTime = particleEmissionRate * Mathf.Lerp(
+                1f,
+                1f + particleTurnBoost,
+                turnStrength);
+
+            ParticleSystem.MainModule main = ballParticles.main;
+            main.startSpeed = new ParticleSystem.MinMaxCurve(
+                particleSpeed * 0.2f,
+                particleSpeed * Mathf.Lerp(1f, 1.45f, turnStrength));
+        }
+
         if (bloom != null)
         {
-            bloom.intensity.value = Mathf.Lerp(0.62f, 0.95f, turnStrength);
+            bloom.intensity.value = Mathf.Lerp(
+                particleBloomIntensity,
+                particleCurveBloomIntensity,
+                turnStrength);
         }
         if (chromaticAberration != null)
         {
@@ -1735,15 +1943,19 @@ public sealed class Level01VideoReplayController : MonoBehaviour
 
     private void DestroyCinematicEffects()
     {
-        if (trailObject != null) Destroy(trailObject);
+        if (particleObject != null) Destroy(particleObject);
         if (pathLineObject != null) Destroy(pathLineObject);
         if (ballLightObject != null) Destroy(ballLightObject);
         if (volumeObject != null) Destroy(volumeObject);
         if (volumeProfile != null) Destroy(volumeProfile);
+        if (particleMaterial != null) Destroy(particleMaterial);
+        if (particleTexture != null) Destroy(particleTexture);
         if (cinematicMaterial != null) Destroy(cinematicMaterial);
 
-        trailObject = null;
-        ballTrail = null;
+        particleObject = null;
+        ballParticles = null;
+        particleMaterial = null;
+        particleTexture = null;
         pathLineObject = null;
         pathLine = null;
         ballLightObject = null;
