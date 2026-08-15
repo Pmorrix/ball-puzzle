@@ -14,6 +14,9 @@ public sealed class Level01VideoReplayController : MonoBehaviour
     private const int StoredReplayVersion = 1;
     private const int PiecePreviewLayer = 30;
     private const string StoredReplayFileName = "LastLevel01ResultReplay.json";
+    private const float WorkshopBackgroundOverscan = 1.5f;
+    private const float WorkshopBackgroundPositionSharpness = 4.5f;
+    private const float WorkshopBackgroundRotationSharpness = 3f;
 
     private enum CinematicShot
     {
@@ -213,6 +216,7 @@ public sealed class Level01VideoReplayController : MonoBehaviour
     private bool workshopBackgroundWasActive;
     private bool workshopBackgroundWasEnabled;
     private bool hasWorkshopBackgroundSnapshot;
+    private bool workshopBackgroundFollowInitialized;
 
     private Material cinematicMaterial;
     private GameObject particleObject;
@@ -895,7 +899,7 @@ public sealed class Level01VideoReplayController : MonoBehaviour
             turnStrength,
             turnSign);
         ApplyCameraPose(pose, cameraCut);
-        UpdateWorkshopBackground();
+        UpdateWorkshopBackground(cameraCut);
         UpdateCinematicEffects(turnStrength, pose.LookTarget, pathProgress);
     }
 
@@ -923,7 +927,7 @@ public sealed class Level01VideoReplayController : MonoBehaviour
                 GetTurnSign(1f));
         }
         ApplyCameraPose(pose, cameraCut);
-        UpdateWorkshopBackground();
+        UpdateWorkshopBackground(cameraCut);
         UpdateCinematicEffects(0f, pose.LookTarget, 1f);
     }
 
@@ -1248,7 +1252,7 @@ public sealed class Level01VideoReplayController : MonoBehaviour
                 startFieldOfView,
                 targetFieldOfView,
                 t);
-            UpdateWorkshopBackground();
+            UpdateWorkshopBackground(false);
             UpdateCinematicEffects(0f, finalBallPosition, 1f);
             yield return null;
         }
@@ -1277,9 +1281,10 @@ public sealed class Level01VideoReplayController : MonoBehaviour
         workshopBackground.transform.SetParent(null, false);
         workshopBackground.gameObject.SetActive(true);
         workshopBackground.enabled = true;
+        workshopBackgroundFollowInitialized = false;
     }
 
-    private void UpdateWorkshopBackground()
+    private void UpdateWorkshopBackground(bool immediate)
     {
         if (!hasWorkshopBackgroundSnapshot || workshopBackground == null ||
             activeCamera == null || workshopBackground.sprite == null)
@@ -1295,13 +1300,40 @@ public sealed class Level01VideoReplayController : MonoBehaviour
         Vector2 spriteSize = workshopBackground.sprite.bounds.size;
         float scale = Mathf.Max(
             horizontalSize / Mathf.Max(0.01f, spriteSize.x),
-            verticalSize / Mathf.Max(0.01f, spriteSize.y)) * 1.06f;
+            verticalSize / Mathf.Max(0.01f, spriteSize.y)) *
+            WorkshopBackgroundOverscan;
 
         Transform backgroundTransform = workshopBackground.transform;
-        backgroundTransform.SetPositionAndRotation(
-            activeCamera.transform.position + activeCamera.transform.forward * distance,
-            activeCamera.transform.rotation);
-        backgroundTransform.localScale = new Vector3(scale, scale, 1f);
+        Vector3 targetPosition = activeCamera.transform.position +
+                                 activeCamera.transform.forward * distance;
+        Quaternion targetRotation = activeCamera.transform.rotation;
+        Vector3 targetScale = new Vector3(scale, scale, 1f);
+
+        if (immediate || !workshopBackgroundFollowInitialized ||
+            Time.unscaledDeltaTime <= 0f)
+        {
+            backgroundTransform.SetPositionAndRotation(targetPosition, targetRotation);
+            backgroundTransform.localScale = targetScale;
+            workshopBackgroundFollowInitialized = true;
+            return;
+        }
+
+        float positionBlend = 1f - Mathf.Exp(
+            -WorkshopBackgroundPositionSharpness * Time.unscaledDeltaTime);
+        float rotationBlend = 1f - Mathf.Exp(
+            -WorkshopBackgroundRotationSharpness * Time.unscaledDeltaTime);
+        backgroundTransform.position = Vector3.Lerp(
+            backgroundTransform.position,
+            targetPosition,
+            positionBlend);
+        backgroundTransform.rotation = Quaternion.Slerp(
+            backgroundTransform.rotation,
+            targetRotation,
+            rotationBlend);
+        backgroundTransform.localScale = Vector3.Lerp(
+            backgroundTransform.localScale,
+            targetScale,
+            positionBlend);
     }
 
     private void RestoreWorkshopBackground()
@@ -1331,6 +1363,7 @@ public sealed class Level01VideoReplayController : MonoBehaviour
 
         workshopBackgroundOriginalParent = null;
         hasWorkshopBackgroundSnapshot = false;
+        workshopBackgroundFollowInitialized = false;
     }
 
     private void EvaluatePath(

@@ -119,7 +119,6 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
     [SerializeField] private TMP_Text testingLabel;
     [SerializeField] private TMP_Text statusLabel;
     [SerializeField] private TMP_Text inventoryStatusLabel;
-    [SerializeField] private TMP_Text paletteSummaryLabel;
     [SerializeField] private TMP_Text resultTitleLabel;
     [SerializeField] private TMP_Text resultMessageLabel;
     [SerializeField] private PieceSelectionCard straightPieceCard;
@@ -190,7 +189,10 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         RememberCurrentLevel();
         ApplyPieceCardActiveStates();
         EnablePanelDragging(rotationControlsPanel);
-        GameObject piecePalettePanel = paletteSummaryLabel.transform.parent.gameObject;
+        Transform pieceCards = straightPieceCard.transform.parent;
+        GameObject piecePalettePanel = pieceCards != null && pieceCards.parent != null
+            ? pieceCards.parent.gameObject
+            : null;
         Transform topBar = buildControlsPanel.transform.parent.Find("Top Bar");
         LinkDraggablePanels(
             piecePalettePanel,
@@ -1914,8 +1916,7 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
                resetButton != null && stopButton != null && retryButton != null &&
                editButton != null && resultResetButton != null && straightButtonLabel != null &&
                curveButtonLabel != null && testingLabel != null && statusLabel != null &&
-               inventoryStatusLabel != null && paletteSummaryLabel != null &&
-               resultTitleLabel != null && resultMessageLabel != null &&
+               inventoryStatusLabel != null && resultTitleLabel != null && resultMessageLabel != null &&
                straightPieceCard != null && curve45PieceCard != null &&
                halfStraightPieceCard != null && halfStraightPieceCard.Button != null &&
                HasLockedPieceCards();
@@ -2077,7 +2078,6 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         resultPanel.SetActive(isShowingResult);
         rotationControlsPanel.SetActive(isBuilding);
         buildControlsPanel.SetActive(isBuilding);
-        RefreshPaletteSummary();
 
         bool straightSelected = pendingPiece != null && pendingPiece.PieceType == CircuitPieceType.Straight;
         bool curveSelected = pendingPiece != null && pendingPiece.PieceType == CircuitPieceType.Curve45Right;
@@ -2155,7 +2155,7 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         statusLabel.text = status;
         inventoryStatusLabel.text = isTestActive || isShowingResult
             ? GetElapsedTimeStatus()
-            : string.Empty;
+            : GetInventoryStatus(straightSelected, halfStraightSelected, curveSelected);
     }
 
     private void ApplyPieceCardActiveStates()
@@ -2167,45 +2167,6 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         foreach (PieceSelectionCard card in lockedPieceCards)
         {
             card.ApplyInspectorActiveState();
-        }
-    }
-
-    private void RefreshPaletteSummary()
-    {
-        int available = 0;
-        int locked = 0;
-        CountPaletteCard(straightPieceCard, ref available, ref locked);
-        CountPaletteCard(halfStraightPieceCard, ref available, ref locked);
-        CountPaletteCard(curve45PieceCard, ref available, ref locked);
-
-        foreach (PieceSelectionCard card in lockedPieceCards)
-        {
-            if (card != halfStraightPieceCard)
-            {
-                CountPaletteCard(card, ref available, ref locked);
-            }
-        }
-
-        paletteSummaryLabel.text = available + " AVAILABLE  ·  " + locked + " LOCKED";
-    }
-
-    private static void CountPaletteCard(
-        PieceSelectionCard card,
-        ref int available,
-        ref int locked)
-    {
-        if (card == null || !card.ActiveInPalette)
-        {
-            return;
-        }
-
-        if (card.LockedInPalette)
-        {
-            locked++;
-        }
-        else
-        {
-            available++;
         }
     }
 
