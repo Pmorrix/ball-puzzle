@@ -5,7 +5,8 @@ public enum CircuitPieceType
     Start,
     Straight,
     Curve45Right,
-    HalfStraight
+    HalfStraight,
+    Curve90
 }
 
 [DisallowMultipleComponent]
