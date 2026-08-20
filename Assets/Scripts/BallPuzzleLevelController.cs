@@ -713,7 +713,7 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         }
 
         return HorizontalDistance(prize.position, worldCenter) <=
-               ConnectionPositionTolerance;
+               GetAnchorAlignmentAssistDistance();
     }
 
     private bool TryGetBoundGoalCenter(out Vector3 worldCenter)
@@ -1364,11 +1364,8 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
 
     private void RequestStartBallTest()
     {
-        if (state != LevelState.Build ||
-            pendingPiece != null ||
-            placedPieces.Count == 0)
+        if (!CanStartBallTest())
         {
-            StartBallTest();
             return;
         }
 
@@ -1400,14 +1397,8 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
 
     private void StartBallTest()
     {
-        if (state != LevelState.Build || pendingPiece != null)
+        if (!CanStartBallTest())
         {
-            status = "Finish or cancel the pending piece before testing.";
-            return;
-        }
-        if (placedPieces.Count == 0)
-        {
-            status = "Place at least one piece before testing.";
             return;
         }
 
@@ -1429,6 +1420,29 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         ball.WakeUp();
         status = "Test running: the ball must collect the prize.";
         TestStarted?.Invoke();
+    }
+
+    private bool CanStartBallTest()
+    {
+        if (state != LevelState.Build || pendingPiece != null)
+        {
+            status = "Finish or cancel the pending piece before testing.";
+            return false;
+        }
+
+        if (placedPieces.Count == 0)
+        {
+            status = "Place at least one piece before testing.";
+            return false;
+        }
+
+        if (!HasCompleteAnchorAlignment())
+        {
+            status = "Circuit incomplete: connect START to GOAL before pressing PLAY.";
+            return false;
+        }
+
+        return true;
     }
 
     private Vector3 GetBallLaunchDirection()
