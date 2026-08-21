@@ -1281,7 +1281,7 @@ MonoBehaviour:
   availableHalfStraights: 2
   buildHalfSize: 16
   buildAreaCenter: {x: 0, y: 4}
-  targetPieceCount: 3
+  targetPieceCount: 6
   targetTestDuration: 6
   placementGridSize: 0.5
   connectionReleaseAssistDistance: 0.75
@@ -12933,7 +12933,7 @@ Transform:
   m_GameObject: {fileID: 1373940515}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 4.25, y: 1.5, z: 17}
+  m_LocalPosition: {x: 11.843, y: 1.5, z: 16.956}
   m_LocalScale: {x: 2, y: 2, z: 2}
   m_ConstrainProportionsScale: 1
   m_Children:

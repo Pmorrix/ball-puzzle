@@ -10,6 +10,7 @@ internal readonly struct BallPuzzleLevelUiState
         bool isTesting,
         bool isShowingResult,
         bool isSuccess,
+        bool isChallengeIncomplete,
         CircuitPieceType? selectedPieceType,
         bool hasPendingPiece,
         bool pendingPieceIsActive,
@@ -29,6 +30,7 @@ internal readonly struct BallPuzzleLevelUiState
         IsTesting = isTesting;
         IsShowingResult = isShowingResult;
         IsSuccess = isSuccess;
+        IsChallengeIncomplete = isChallengeIncomplete;
         SelectedPieceType = selectedPieceType;
         HasPendingPiece = hasPendingPiece;
         PendingPieceIsActive = pendingPieceIsActive;
@@ -49,6 +51,7 @@ internal readonly struct BallPuzzleLevelUiState
     public bool IsTesting { get; }
     public bool IsShowingResult { get; }
     public bool IsSuccess { get; }
+    public bool IsChallengeIncomplete { get; }
     public CircuitPieceType? SelectedPieceType { get; }
     public bool HasPendingPiece { get; }
     public bool PendingPieceIsActive { get; }
@@ -307,7 +310,11 @@ internal sealed class BallPuzzleLevelUiPresenter
             return;
         }
 
-        resultTitleLabel.text = state.IsSuccess ? "GOAL" : "FAIL";
+        resultTitleLabel.text = state.IsSuccess
+            ? "GOAL"
+            : state.IsChallengeIncomplete
+                ? "TRY AGAIN"
+                : "FAIL";
         resultMessageLabel.text = string.IsNullOrEmpty(state.ResultMessage)
             ? state.Status
             : state.ResultMessage;

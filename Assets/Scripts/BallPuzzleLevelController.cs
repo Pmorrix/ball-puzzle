@@ -29,6 +29,7 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         Build,
         Testing,
         Failure,
+        ChallengeIncomplete,
         Success
     }
 
@@ -976,7 +977,7 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         switch (ballTestController.Evaluate())
         {
             case BallPuzzleBallTestResult.PrizeCollected:
-                CompleteLevel();
+                CompleteCircuitTest();
                 break;
             case BallPuzzleBallTestResult.Fell:
                 FailTest("The ball fell off the track.");
@@ -1015,6 +1016,23 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
             targetPieceCount);
         prize.localScale = prizeInitialScale * 1.35f;
         LevelCompleted?.Invoke();
+    }
+
+    private void CompleteCircuitTest()
+    {
+        if (placedPieces.Count >= targetPieceCount)
+        {
+            CompleteLevel();
+            return;
+        }
+
+        ballTestController.Finish();
+        state = LevelState.ChallengeIncomplete;
+        status = "Circuit complete, but use all " + targetPieceCount +
+                 " pieces to finish the level.";
+        resultMessage = "CIRCUIT WORKS\nPIECES  " + placedPieces.Count +
+                        " / " + targetPieceCount +
+                        "\nUSE ALL PIECES TO WIN";
     }
 
     private void RetryTest()
@@ -1396,7 +1414,9 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
     {
         bool isBuilding = state == LevelState.Build;
         bool isTesting = state == LevelState.Testing;
-        bool isShowingResult = state == LevelState.Failure || state == LevelState.Success;
+        bool isShowingResult = state == LevelState.Failure ||
+                               state == LevelState.ChallengeIncomplete ||
+                               state == LevelState.Success;
         CircuitPieceType? selectedPieceType = pendingPiece != null
             ? pendingPiece.PieceType
             : null;
@@ -1409,6 +1429,7 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
             isTesting,
             isShowingResult,
             state == LevelState.Success,
+            state == LevelState.ChallengeIncomplete,
             selectedPieceType,
             pendingPiece != null,
             pendingPiece != null && pendingPiece.gameObject.activeSelf,
