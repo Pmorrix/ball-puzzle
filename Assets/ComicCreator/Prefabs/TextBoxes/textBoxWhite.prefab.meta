@@ -1,0 +1,15 @@
+fileFormatVersion: 2
+guid: e98c439e300036049ba20281fdde2a81
+NativeFormatImporter:
+  externalObjects: {}
+  mainObjectFileID: 100100000
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 156749
+  packageName: Interactive Comic Maker
+  packageVersion: 1.3
+  assetPath: Assets/ComicCreator/Prefabs/TextBoxes/textBoxWhite.prefab
+  uploadId: 408750

@@ -165,6 +165,9 @@ MonoBehaviour:
   connectors:
   - {fileID: 2776443636423897658}
   - {fileID: 8780045680398037348}
+  ballPathPoints:
+  - {x: 0, y: 1.05, z: -4}
+  - {x: 0, y: 1.05, z: 4}
   incomingConnectorIndex: 0
 --- !u!1 &1258020412681847649
 GameObject:

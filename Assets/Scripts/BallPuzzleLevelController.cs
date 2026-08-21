@@ -10,21 +10,7 @@ using TMPro;
 [DisallowMultipleComponent]
 public sealed class BallPuzzleLevelController : MonoBehaviour
 {
-    private const float ConnectionPositionTolerance = 0.01f;
-    private const float ConnectionDirectionDot = -0.999f;
     private const float PieceCardSpawnMargin = 24f;
-    private const int PlacementHaloTextureSize = 64;
-    private const float PlacementHaloPadding = 2.4f;
-    private const float PlacementHaloHeightOffset = 0.04f;
-    private const float PlacementHaloPulseSpeed = 3.8f;
-    private const float PlacementHaloPulseAmount = 0.06f;
-    private const string LastPlayedLevelKey = "BallPuzzleLastPlayedLevel";
-    private const string TotalCompletionTimeKey = "BallPuzzleTotalCompletionTime";
-    private const string LevelCompletionTimeKeyPrefix = "BallPuzzleCompletionTime.";
-
-    private static readonly Color InteractionIndicatorColor = new Color(0.23f, 0.78f, 0.91f, 0.82f);
-    private static readonly Color ValidPlacementIndicatorColor = new Color(0.31f, 0.84f, 0.60f, 0.82f);
-    private static readonly Color InvalidPlacementIndicatorColor = new Color(0.95f, 0.42f, 0.42f, 0.82f);
 
     public event Action<CircuitPiece> PlacementStarted;
     public event Action<CircuitPiece, bool> PlacementPositioned;
@@ -36,26 +22,14 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
     public event Action LevelCompleted;
 
     public int PlacedPieceCount => placedPieces.Count;
-    public bool IsPendingPieceMoving =>
-        pendingPiece != null &&
-        (placementState == PlacementState.Selected ||
-         placementState == PlacementState.Dragging);
+    public bool IsPendingPieceMoving => pendingPlacement.IsMoving;
 
     private enum LevelState
     {
         Build,
         Testing,
-        Paused,
         Failure,
         Success
-    }
-
-    private enum PlacementState
-    {
-        None,
-        Selected,
-        Dragging,
-        Positioned
     }
 
     [Header("Scene")]
@@ -63,7 +37,6 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
     [SerializeField] private CircuitPiece straightPiecePrefab;
     [SerializeField] private CircuitPiece curve45RightPiecePrefab;
     [SerializeField] private CircuitPiece halfStraightPiecePrefab;
-    [SerializeField] private CircuitPiece curve90PiecePrefab;
     [SerializeField] private Rigidbody ball;
     [SerializeField] private Transform ballSpawnPoint;
     [SerializeField] private Transform prize;
@@ -73,7 +46,6 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
     [SerializeField, Min(0)] private int availableStraights = 2;
     [SerializeField, Min(0)] private int availableCurves = 2;
     [SerializeField, Min(0)] private int availableHalfStraights = 2;
-    [SerializeField, Min(0)] private int availableCurve90s;
     [SerializeField, Min(1f)] private float buildHalfSize = 16f;
     [SerializeField] private Vector2 buildAreaCenter = new Vector2(0f, 4f);
 
@@ -104,6 +76,7 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
     [SerializeField] private GameObject testingControlsPanel;
     [SerializeField] private GameObject resultPanel;
     [SerializeField] private GameObject rotationControlsPanel;
+    [SerializeField] private GameObject introPresenter;
     [SerializeField] private GameObject playConfirmationDialog;
     [SerializeField] private Button confirmPlayButton;
     [SerializeField] private Button cancelPlayButton;
@@ -113,15 +86,12 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
     [SerializeField] private Button rotateYCounterClockwiseButton;
     [SerializeField] private Button placeButton;
     [SerializeField] private Button testButton;
-    [SerializeField] private Button pauseButton;
     [SerializeField] private Button resetButton;
-    [SerializeField] private Button stopButton;
     [SerializeField] private Button retryButton;
     [SerializeField] private Button editButton;
     [SerializeField] private Button resultResetButton;
     [SerializeField] private TMP_Text straightButtonLabel;
     [SerializeField] private TMP_Text curveButtonLabel;
-    [SerializeField] private TMP_Text pauseButtonLabel;
     [SerializeField] private TMP_Text testingLabel;
     [SerializeField] private TMP_Text statusLabel;
     [SerializeField] private TMP_Text inventoryStatusLabel;
@@ -130,52 +100,57 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
     [SerializeField] private PieceSelectionCard straightPieceCard;
     [SerializeField] private PieceSelectionCard curve45PieceCard;
     [SerializeField] private PieceSelectionCard halfStraightPieceCard;
-    [SerializeField] private PieceSelectionCard curve90PieceCard;
     [SerializeField] private PieceSelectionCard[] lockedPieceCards;
 
     private readonly List<CircuitPiece> placedPieces = new List<CircuitPiece>();
 
     private Transform placedPiecesRoot;
-    private GameObject placementIndicator;
-    private SpriteRenderer placementIndicatorRenderer;
-    private Texture2D placementIndicatorTexture;
-    private Sprite placementIndicatorSprite;
-    private Vector3 placementIndicatorBaseScale;
-    private Color placementIndicatorBaseColor;
-    private CircuitPiece pendingPiece;
-    private PlacementState placementState = PlacementState.None;
-    private int pendingRotationIndex;
-    private Vector3 pendingDragOffset;
-    private Vector3 pendingRotationPivotLocal;
-    private bool pendingHasValidPosition;
+    private BallPuzzlePlacementIndicator placementIndicator;
+    private readonly BallPuzzlePendingPlacement pendingPlacement =
+        new BallPuzzlePendingPlacement();
+    private CircuitPiece pendingPiece => pendingPlacement.Piece;
+    private PlacementState placementState
+    {
+        get => pendingPlacement.State;
+        set => pendingPlacement.State = value;
+    }
+    private int pendingRotationIndex
+    {
+        get => pendingPlacement.RotationIndex;
+        set => pendingPlacement.RotationIndex = value;
+    }
+    private Vector3 pendingDragOffset
+    {
+        get => pendingPlacement.DragOffset;
+        set => pendingPlacement.DragOffset = value;
+    }
+    private Vector3 pendingRotationPivotLocal =>
+        pendingPlacement.RotationPivotLocal;
+    private bool pendingHasValidPosition
+    {
+        get => pendingPlacement.HasValidPosition;
+        set => pendingPlacement.HasValidPosition = value;
+    }
     private int straightRemaining;
     private int curveRemaining;
     private int halfStraightRemaining;
-    private int curve90Remaining;
     private LevelState state = LevelState.Build;
+    private BallPuzzleBallTestController ballTestController;
+    private BallPuzzlePlacementValidator placementValidator;
+    private BallPuzzlePendingPiecePositioner pendingPiecePositioner;
+    private BallPuzzleLevelUiPresenter uiPresenter;
     private string status = "Choose a piece to start placing it.";
     private string resultMessage = string.Empty;
-    private float testStartedAt;
-    private float lastTestDuration;
-    private float stoppedAt = -1f;
-    private float pauseStartedAt = -1f;
-    private bool hasTestDuration;
-    private Vector3 pausedLinearVelocity;
-    private Vector3 pausedAngularVelocity;
     private Vector3 prizeInitialScale;
     private Vector3 prizeInitialPosition;
-    private CircuitPiece adjustedGoalPiece;
-    private int adjustedGoalConnectorIndex = -1;
-    private bool hasAdjustedGoal;
-    private Vector2 buildTitleAnchorMin;
-    private Vector2 buildTitleAnchorMax;
-    private Vector2 buildTitleAnchoredPosition;
-    private Vector2 buildTitleSizeDelta;
-    private Vector2 buildTitlePivot;
-    private bool isLevelTitleInTestingPosition;
-
+    private BallPuzzleGoalBinding goalBinding;
     private void Awake()
     {
+        if (introPresenter != null && introPresenter.activeSelf)
+        {
+            introPresenter.SetActive(false);
+        }
+
         if (targetPieceCount <= 0)
         {
             targetPieceCount = 3;
@@ -200,8 +175,10 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
             return;
         }
 
-        RememberCurrentLevel();
-        ApplyPieceCardActiveStates();
+        BallPuzzleProgressStore.RememberCurrentLevel(
+            SceneManager.GetActiveScene().name);
+        uiPresenter = CreateUiPresenter();
+        uiPresenter.ApplyPieceCardActiveStates();
         EnablePanelDragging(rotationControlsPanel);
         Transform pieceCards = straightPieceCard.transform.parent;
         GameObject piecePalettePanel = pieceCards != null && pieceCards.parent != null
@@ -217,41 +194,51 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         GameObject piecesRoot = new GameObject("Placed Puzzle Pieces");
         piecesRoot.transform.SetParent(transform, false);
         placedPiecesRoot = piecesRoot.transform;
-        CreatePlacementIndicator();
+        placementIndicator = new BallPuzzlePlacementIndicator(transform);
+        placementValidator = new BallPuzzlePlacementValidator(
+            placedPieces,
+            buildAreaCenter,
+            buildHalfSize);
+        pendingPiecePositioner = new BallPuzzlePendingPiecePositioner(
+            buildCamera,
+            placementGridSize,
+            buildSurfaceHeight,
+            rotationStep);
 
         straightRemaining = availableStraights;
         curveRemaining = availableCurves;
         halfStraightRemaining = availableHalfStraights;
-        curve90Remaining = availableCurve90s;
         prizeInitialScale = prize.localScale;
         prizeInitialPosition = prize.position;
-        ResetBallForBuild();
+        goalBinding = new BallPuzzleGoalBinding(
+            placedPieces,
+            placementValidator,
+            startAnchor,
+            prize,
+            prizeInitialPosition,
+            GetAnchorAlignmentAssistDistance(),
+            prizeCollectionDistance);
+        ballTestController = new BallPuzzleBallTestController(
+            ball,
+            ballSpawnPoint,
+            prize,
+            prizeCollectionDistance,
+            fallHeight,
+            maximumTestDuration,
+            stoppedDuration);
+        ballTestController.ResetBallForBuild();
         RefreshUi();
-    }
 
-    private static void RememberCurrentLevel()
-    {
-        string activeSceneName = SceneManager.GetActiveScene().name;
-        if (string.IsNullOrWhiteSpace(activeSceneName))
+        if (introPresenter != null)
         {
-            return;
+            introPresenter.SetActive(true);
         }
-
-        PlayerPrefs.SetString(LastPlayedLevelKey, activeSceneName);
-        PlayerPrefs.Save();
     }
 
     private void OnDestroy()
     {
         UnwireUiEvents();
-        if (placementIndicatorSprite != null)
-        {
-            Destroy(placementIndicatorSprite);
-        }
-        if (placementIndicatorTexture != null)
-        {
-            Destroy(placementIndicatorTexture);
-        }
+        placementIndicator?.Dispose();
     }
 
     private static DraggableUIPanel EnablePanelDragging(GameObject panel)
@@ -291,7 +278,7 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
     private void Update()
     {
         AnimatePrize();
-        AnimatePlacementIndicator();
+        placementIndicator?.Animate();
 
         if (state == LevelState.Build)
         {
@@ -372,13 +359,19 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
             return;
         }
 
-        if (pointerOverUi ||
-            !mouse.leftButton.wasPressedThisFrame ||
-            !TryGetPendingPieceDragOffset(pointerPosition, out pendingDragOffset))
+        if (pointerOverUi || !mouse.leftButton.wasPressedThisFrame)
         {
             return;
         }
 
+        if (!TryGetPendingPieceDragOffset(
+                pointerPosition,
+                out Vector3 dragOffset))
+        {
+            return;
+        }
+
+        pendingDragOffset = dragOffset;
         placementState = PlacementState.Dragging;
         UpdatePendingPiece(pointerPosition);
         status = "Drag the piece and release the left mouse button to set its position.";
@@ -472,7 +465,7 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         }
 
         placedPiecesRoot.position += clampedOffset;
-        RecalculateAdjustedGoalPosition();
+        goalBinding.RecalculatePosition();
         return true;
     }
 
@@ -502,8 +495,7 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
                  connector < piece.ConnectorCount;
                  connector++)
             {
-                if (piece == adjustedGoalPiece &&
-                    connector == adjustedGoalConnectorIndex)
+                if (goalBinding.IsBoundConnector(piece, connector))
                 {
                     continue;
                 }
@@ -583,9 +575,10 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
                         piece,
                         connector,
                         includePendingPiece) &&
-                    HorizontalDistance(
+                    BallPuzzlePlacementValidator.HorizontalDistance(
                         piece.GetConnectorPosition(connector) + positionOffset,
-                        anchor.position) <= ConnectionPositionTolerance)
+                        anchor.position) <=
+                    BallPuzzlePlacementValidator.ConnectionPositionTolerance)
                 {
                     return true;
                 }
@@ -615,7 +608,7 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
                  otherConnector < otherPiece.ConnectorCount;
                  otherConnector++)
             {
-                if (AreConnectorsAligned(
+                if (BallPuzzlePlacementValidator.AreConnectorsAligned(
                         piece,
                         connector,
                         otherPiece,
@@ -655,249 +648,7 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
     private bool HasCompleteAnchorAlignment()
     {
         return HasOpenStructureConnectorAt(startAnchor, Vector3.zero) &&
-               HasValidAdjustedGoal();
-    }
-
-    private void ReevaluateAdjustedGoalBinding()
-    {
-        if (TryGetBoundGoalCenter(out _))
-        {
-            KeepGoalAtInitialPosition();
-            hasAdjustedGoal = true;
-            return;
-        }
-
-        adjustedGoalPiece = null;
-        adjustedGoalConnectorIndex = -1;
-        if (TryGetClosestFreeGoalCandidate(
-                out CircuitPiece candidatePiece,
-                out int candidateConnector,
-                out _))
-        {
-            adjustedGoalPiece = candidatePiece;
-            adjustedGoalConnectorIndex = candidateConnector;
-            KeepGoalAtInitialPosition();
-            hasAdjustedGoal = true;
-            return;
-        }
-
-        RestoreInitialGoalPosition();
-    }
-
-    private void RecalculateAdjustedGoalPosition()
-    {
-        if (TryGetStoredGoalCenter(out _))
-        {
-            KeepGoalAtInitialPosition();
-            return;
-        }
-
-        RestoreInitialGoalPosition();
-    }
-
-    private void KeepGoalAtInitialPosition()
-    {
-        if (prize == null)
-        {
-            return;
-        }
-
-        prize.position = prizeInitialPosition;
-    }
-
-    private bool HasValidAdjustedGoal()
-    {
-        if (!hasAdjustedGoal || !TryGetBoundGoalCenter(out Vector3 worldCenter))
-        {
-            return false;
-        }
-
-        return HorizontalDistance(prize.position, worldCenter) <=
-               GetAnchorAlignmentAssistDistance();
-    }
-
-    private bool TryGetBoundGoalCenter(out Vector3 worldCenter)
-    {
-        if (!TryGetStoredGoalCenter(out worldCenter) ||
-            !IsPieceConnectedToStart(adjustedGoalPiece))
-        {
-            return false;
-        }
-
-        return true;
-    }
-
-    private bool TryGetStoredGoalCenter(out Vector3 worldCenter)
-    {
-        worldCenter = Vector3.zero;
-        if (adjustedGoalPiece == null ||
-            !adjustedGoalPiece.gameObject.activeSelf ||
-            !placedPieces.Contains(adjustedGoalPiece) ||
-            adjustedGoalConnectorIndex < 0 ||
-            adjustedGoalConnectorIndex >= adjustedGoalPiece.ConnectorCount)
-        {
-            return false;
-        }
-
-        worldCenter = adjustedGoalPiece.GetConnectorPosition(
-            adjustedGoalConnectorIndex);
-        return true;
-    }
-
-    private bool TryGetClosestFreeGoalCandidate(
-        out CircuitPiece candidatePiece,
-        out int candidateConnector,
-        out Vector3 candidateCenter)
-    {
-        candidatePiece = null;
-        candidateConnector = -1;
-        candidateCenter = Vector3.zero;
-        float closestDistance = float.PositiveInfinity;
-        float assistDistance = GetAnchorAlignmentAssistDistance();
-        HashSet<CircuitPiece> startComponent = GetStartConnectedPieces();
-
-        foreach (CircuitPiece piece in startComponent)
-        {
-            if (piece == null)
-            {
-                continue;
-            }
-
-            for (int connector = 0;
-                 connector < piece.ConnectorCount;
-                 connector++)
-            {
-                if (IsPlacedConnectorOccupied(piece, connector))
-                {
-                    continue;
-                }
-
-                Vector3 connectorPosition =
-                    piece.GetConnectorPosition(connector);
-                if (startAnchor != null &&
-                    HorizontalDistance(
-                        connectorPosition,
-                        startAnchor.position) <= ConnectionPositionTolerance)
-                {
-                    continue;
-                }
-
-                float distance = HorizontalDistance(
-                    connectorPosition,
-                    prizeInitialPosition);
-                if (distance > assistDistance ||
-                    distance >= closestDistance)
-                {
-                    continue;
-                }
-
-                candidatePiece = piece;
-                candidateConnector = connector;
-                candidateCenter = connectorPosition;
-                closestDistance = distance;
-            }
-        }
-
-        return candidatePiece != null;
-    }
-
-    private bool IsPieceConnectedToStart(CircuitPiece piece)
-    {
-        return piece != null && GetStartConnectedPieces().Contains(piece);
-    }
-
-    private HashSet<CircuitPiece> GetStartConnectedPieces()
-    {
-        HashSet<CircuitPiece> visited = new HashSet<CircuitPiece>();
-        Queue<CircuitPiece> pending = new Queue<CircuitPiece>();
-
-        foreach (CircuitPiece piece in placedPieces)
-        {
-            if (piece == null || !HasOpenConnectorAtStart(piece))
-            {
-                continue;
-            }
-
-            visited.Add(piece);
-            pending.Enqueue(piece);
-        }
-
-        while (pending.Count > 0)
-        {
-            CircuitPiece current = pending.Dequeue();
-            foreach (CircuitPiece other in placedPieces)
-            {
-                if (other == null ||
-                    visited.Contains(other) ||
-                    !ArePiecesConnected(current, other))
-                {
-                    continue;
-                }
-
-                visited.Add(other);
-                pending.Enqueue(other);
-            }
-        }
-
-        return visited;
-    }
-
-    private void RestoreInitialGoalPosition()
-    {
-        hasAdjustedGoal = false;
-        if (prize != null)
-        {
-            prize.position = prizeInitialPosition;
-        }
-    }
-
-    private bool HasOpenConnectorAtStart(CircuitPiece piece)
-    {
-        if (piece == null || startAnchor == null)
-        {
-            return false;
-        }
-
-        for (int connector = 0;
-             connector < piece.ConnectorCount;
-             connector++)
-        {
-            if (!IsPlacedConnectorOccupied(piece, connector) &&
-                HorizontalDistance(
-                    piece.GetConnectorPosition(connector),
-                    startAnchor.position) <= ConnectionPositionTolerance)
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    private static bool ArePiecesConnected(
-        CircuitPiece firstPiece,
-        CircuitPiece secondPiece)
-    {
-        for (int firstConnector = 0;
-             firstConnector < firstPiece.ConnectorCount;
-             firstConnector++)
-        {
-            for (int secondConnector = 0;
-                 secondConnector < secondPiece.ConnectorCount;
-                 secondConnector++)
-            {
-                if (AreConnectorsAligned(
-                        firstPiece,
-                        firstConnector,
-                        secondPiece,
-                        secondConnector))
-                {
-                    return true;
-                }
-            }
-        }
-
-        return false;
+               goalBinding.HasValidGoal();
     }
 
     private float GetAnchorAlignmentAssistDistance()
@@ -905,7 +656,7 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         return Mathf.Max(
                    connectionReleaseAssistDistance * 2f,
                    placementGridSize * 2f) +
-               ConnectionPositionTolerance;
+               BallPuzzlePlacementValidator.ConnectionPositionTolerance;
     }
 
     private void BeginPlacement(
@@ -918,15 +669,10 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         }
 
         CancelPendingPiece(false);
-        pendingPiece = Instantiate(prefab, placedPiecesRoot);
+        CircuitPiece piece = Instantiate(prefab, placedPiecesRoot);
+        pendingPlacement.Begin(piece);
         pendingPiece.name = prefab.DisplayName + " (pendiente)";
         pendingPiece.ClearTint();
-
-        placementState = PlacementState.Selected;
-        pendingRotationIndex = 0;
-        pendingDragOffset = Vector3.zero;
-        pendingRotationPivotLocal = pendingPiece.transform.InverseTransformPoint(
-            pendingPiece.GetRenderBounds().center);
 
         Mouse mouse = Mouse.current;
         if (mouse != null && mouse.leftButton.isPressed)
@@ -956,101 +702,35 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
 
     private void PositionPendingPieceAtStagingPoint()
     {
-        Vector3 stagingPosition = new Vector3(
-            SnapToGrid(buildAreaCenter.x),
-            buildSurfaceHeight,
-            SnapToGrid(buildAreaCenter.y));
-        pendingPiece.transform.SetPositionAndRotation(
-            stagingPosition,
-            GetPendingRotation());
-        RestPendingPieceOnBuildSurface();
+        pendingPiecePositioner.PositionAtStagingPoint(
+            pendingPiece,
+            buildAreaCenter,
+            pendingRotationIndex);
         EvaluatePendingPlacement();
     }
 
     private void UpdatePendingPiece(Vector2 mousePosition)
     {
-        if (!TryGetBuildPoint(mousePosition, out Vector3 buildPoint))
+        if (!pendingPiecePositioner.TryPositionAtPointer(
+                pendingPiece,
+                mousePosition,
+                pendingDragOffset,
+                pendingRotationIndex))
         {
             SetPendingPlacementValidity(false);
             return;
         }
 
-        buildPoint += pendingDragOffset;
-        Vector3 snappedPosition = new Vector3(
-            SnapToGrid(buildPoint.x),
-            buildSurfaceHeight,
-            SnapToGrid(buildPoint.z));
-        pendingPiece.transform.SetPositionAndRotation(snappedPosition, GetPendingRotation());
-        RestPendingPieceOnBuildSurface();
+        TryAlignPendingPieceToConnectionTarget();
         EvaluatePendingPlacement();
     }
 
     private void MovePendingPieceFullyRightOf(Vector2 minimumScreenPosition)
     {
-        const int MaximumCorrectionIterations = 3;
-        Vector2 currentScreenPosition = minimumScreenPosition;
-
-        for (int iteration = 0;
-             iteration < MaximumCorrectionIterations;
-             iteration++)
-        {
-            float pieceLeftEdge = GetPendingPieceLeftScreenEdge();
-            float horizontalCorrection = minimumScreenPosition.x - pieceLeftEdge;
-            if (horizontalCorrection <= 0.5f)
-            {
-                break;
-            }
-
-            Vector2 correctedScreenPosition =
-                currentScreenPosition + Vector2.right * horizontalCorrection;
-            if (!TryGetBuildPoint(
-                    currentScreenPosition,
-                    out Vector3 currentBuildPoint) ||
-                !TryGetBuildPoint(
-                    correctedScreenPosition,
-                    out Vector3 correctedBuildPoint))
-            {
-                break;
-            }
-
-            Vector3 worldCorrection = correctedBuildPoint - currentBuildPoint;
-            worldCorrection.y = 0f;
-            pendingPiece.transform.position += worldCorrection;
-            RestPendingPieceOnBuildSurface();
-            currentScreenPosition = correctedScreenPosition;
-        }
-
+        pendingPiecePositioner.MoveFullyRightOf(
+            pendingPiece,
+            minimumScreenPosition);
         EvaluatePendingPlacement();
-    }
-
-    private float GetPendingPieceLeftScreenEdge()
-    {
-        Bounds bounds = pendingPiece.GetRenderBounds();
-        Vector3 minimum = bounds.min;
-        Vector3 maximum = bounds.max;
-        float leftEdge = float.PositiveInfinity;
-
-        for (int x = 0; x < 2; x++)
-        {
-            for (int y = 0; y < 2; y++)
-            {
-                for (int z = 0; z < 2; z++)
-                {
-                    Vector3 corner = new Vector3(
-                        x == 0 ? minimum.x : maximum.x,
-                        y == 0 ? minimum.y : maximum.y,
-                        z == 0 ? minimum.z : maximum.z);
-                    Vector3 screenCorner =
-                        buildCamera.WorldToScreenPoint(corner);
-                    if (screenCorner.z > 0f)
-                    {
-                        leftEdge = Mathf.Min(leftEdge, screenCorner.x);
-                    }
-                }
-            }
-        }
-
-        return leftEdge;
     }
 
     private void EvaluatePendingPlacement()
@@ -1061,8 +741,9 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
             return;
         }
 
-        bool isInsideBuildArea = IsInsideBuildArea(pendingPiece);
-        bool hasValidConnection = placedPieces.Count == 0 || HasValidConnection(pendingPiece);
+        bool isInsideBuildArea = placementValidator.IsInsideBuildArea(pendingPiece);
+        bool hasValidConnection = placedPieces.Count == 0 ||
+                                  placementValidator.HasValidConnection(pendingPiece);
         bool hasRequiredAnchorAlignment = HasRequiredAnchorAlignment(true);
         SetPendingPlacementValidity(
             isInsideBuildArea &&
@@ -1080,8 +761,8 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
 
         TryAlignPendingPieceToConnectionTarget();
         if (placedPieces.Count > 0 &&
-            IsInsideBuildArea(pendingPiece) &&
-            HasValidConnection(pendingPiece))
+            placementValidator.IsInsideBuildArea(pendingPiece) &&
+            placementValidator.HasValidConnection(pendingPiece))
         {
             TryAlignPlacedStructureToAnchors(true);
         }
@@ -1099,45 +780,10 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         Vector2 mousePosition,
         out Vector3 dragOffset)
     {
-        dragOffset = Vector3.zero;
-        Ray ray = buildCamera.ScreenPointToRay(mousePosition);
-        RaycastHit[] hits = Physics.RaycastAll(
-            ray,
-            float.PositiveInfinity,
-            Physics.DefaultRaycastLayers,
-            QueryTriggerInteraction.Ignore);
-        bool hitPendingPiece = false;
-        float closestDistance = float.PositiveInfinity;
-
-        foreach (RaycastHit hit in hits)
-        {
-            if (hit.collider == null)
-            {
-                continue;
-            }
-
-            Transform hitTransform = hit.collider.transform;
-            bool belongsToPendingPiece =
-                hitTransform == pendingPiece.transform ||
-                hitTransform.IsChildOf(pendingPiece.transform);
-            if (!belongsToPendingPiece || hit.distance >= closestDistance)
-            {
-                continue;
-            }
-
-            hitPendingPiece = true;
-            closestDistance = hit.distance;
-        }
-
-        if (!hitPendingPiece ||
-            !TryGetBuildPoint(mousePosition, out Vector3 buildPoint))
-        {
-            return false;
-        }
-
-        dragOffset = pendingPiece.transform.position - buildPoint;
-        dragOffset.y = 0f;
-        return true;
+        return pendingPiecePositioner.TryGetDragOffset(
+            pendingPiece,
+            mousePosition,
+            out dragOffset);
     }
 
     private string GetInvalidPlacementMessage()
@@ -1157,28 +803,13 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
             : "The piece must connect correctly to an open endpoint.";
     }
 
-    private Quaternion GetPendingRotation()
-    {
-        return Quaternion.Euler(0f, pendingRotationIndex * rotationStep, 0f);
-    }
-
-    private float SnapToGrid(float value)
-    {
-        return Mathf.Round(value / placementGridSize) * placementGridSize;
-    }
-
-    private void RestPendingPieceOnBuildSurface()
-    {
-        Bounds bounds = pendingPiece.GetRenderBounds();
-        Vector3 position = pendingPiece.transform.position;
-        position.y += buildSurfaceHeight - bounds.min.y;
-        pendingPiece.transform.position = position;
-    }
-
     private void SetPendingPlacementValidity(bool isValid)
     {
         pendingHasValidPosition = isValid;
-        UpdatePlacementIndicator();
+        placementIndicator?.Refresh(
+            pendingPiece,
+            placementState != PlacementState.None,
+            pendingHasValidPosition);
     }
 
     private void PlacePendingPiece()
@@ -1201,19 +832,14 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         CircuitPiece piece = pendingPiece;
         piece.name = piece.DisplayName + " " + (placedPieces.Count + 1);
         piece.ClearTint();
-        HidePlacementIndicator();
+        placementIndicator?.Hide();
         placedPieces.Add(piece);
         ConsumePiece(piece);
-        ReevaluateAdjustedGoalBinding();
+        goalBinding.ReevaluateBinding();
         PiecePlaced?.Invoke(piece);
 
-        pendingPiece = null;
-        placementState = PlacementState.None;
-        pendingRotationIndex = 0;
-        pendingDragOffset = Vector3.zero;
-        pendingRotationPivotLocal = Vector3.zero;
-        pendingHasValidPosition = false;
-        status = adjustedGoalPiece == piece && hasAdjustedGoal
+        pendingPlacement.Reset();
+        status = goalBinding.IsAdjustedPiece(piece)
             ? "Final piece placed. GOAL connection detected."
             : "Piece placed. Continue or press PLAY.";
     }
@@ -1225,140 +851,12 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
             Destroy(pendingPiece.gameObject);
         }
 
-        HidePlacementIndicator();
-        pendingPiece = null;
-        placementState = PlacementState.None;
-        pendingRotationIndex = 0;
-        pendingDragOffset = Vector3.zero;
-        pendingRotationPivotLocal = Vector3.zero;
-        pendingHasValidPosition = false;
+        placementIndicator?.Hide();
+        pendingPlacement.Reset();
         PlacementCancelled?.Invoke();
         if (updateStatus)
         {
             status = "Placement cancelled.";
-        }
-    }
-
-    private void CreatePlacementIndicator()
-    {
-        placementIndicator = new GameObject("Placement Halo");
-        placementIndicator.transform.SetParent(transform, false);
-        placementIndicator.transform.rotation = Quaternion.Euler(-90f, 0f, 0f);
-        placementIndicatorRenderer = placementIndicator.AddComponent<SpriteRenderer>();
-        placementIndicatorRenderer.shadowCastingMode =
-            UnityEngine.Rendering.ShadowCastingMode.Off;
-        placementIndicatorRenderer.receiveShadows = false;
-        placementIndicatorRenderer.sortingOrder = 20;
-
-        placementIndicatorTexture = new Texture2D(
-            PlacementHaloTextureSize,
-            PlacementHaloTextureSize,
-            TextureFormat.RGBA32,
-            false)
-        {
-            name = "Placement Halo Texture (Runtime)",
-            filterMode = FilterMode.Bilinear,
-            wrapMode = TextureWrapMode.Clamp,
-            hideFlags = HideFlags.HideAndDontSave
-        };
-        Color[] pixels = new Color[
-            PlacementHaloTextureSize * PlacementHaloTextureSize];
-        for (int y = 0; y < PlacementHaloTextureSize; y++)
-        {
-            for (int x = 0; x < PlacementHaloTextureSize; x++)
-            {
-                float normalizedX =
-                    (x + 0.5f) / PlacementHaloTextureSize * 2f - 1f;
-                float normalizedY =
-                    (y + 0.5f) / PlacementHaloTextureSize * 2f - 1f;
-                float distance = Mathf.Sqrt(
-                    normalizedX * normalizedX +
-                    normalizedY * normalizedY);
-                float alpha = 1f - Mathf.SmoothStep(0.12f, 1f, distance);
-                alpha = Mathf.Pow(alpha, 0.72f);
-                pixels[y * PlacementHaloTextureSize + x] =
-                    new Color(1f, 1f, 1f, alpha);
-            }
-        }
-        placementIndicatorTexture.SetPixels(pixels);
-        placementIndicatorTexture.Apply(false, false);
-
-        placementIndicatorSprite = Sprite.Create(
-            placementIndicatorTexture,
-            new Rect(
-                0f,
-                0f,
-                PlacementHaloTextureSize,
-                PlacementHaloTextureSize),
-            new Vector2(0.5f, 0.5f),
-            PlacementHaloTextureSize);
-        placementIndicatorSprite.name = "Placement Halo Sprite (Runtime)";
-        placementIndicatorSprite.hideFlags = HideFlags.HideAndDontSave;
-        placementIndicatorRenderer.sprite = placementIndicatorSprite;
-        placementIndicator.SetActive(false);
-    }
-
-    private void UpdatePlacementIndicator()
-    {
-        if (placementIndicator == null ||
-            placementIndicatorRenderer == null ||
-            pendingPiece == null ||
-            !pendingPiece.gameObject.activeSelf)
-        {
-            HidePlacementIndicator();
-            return;
-        }
-
-        Bounds bounds = pendingPiece.GetRenderBounds();
-        Vector3 center = bounds.center;
-        center.y = bounds.min.y + PlacementHaloHeightOffset;
-        placementIndicator.transform.position = center;
-        placementIndicatorBaseScale = new Vector3(
-            Mathf.Max(PlacementHaloPadding, bounds.size.x + PlacementHaloPadding * 2f),
-            Mathf.Max(PlacementHaloPadding, bounds.size.z + PlacementHaloPadding * 2f),
-            1f);
-
-        bool showPlacementValidity =
-            placementState == PlacementState.Dragging ||
-            placementState == PlacementState.Positioned;
-        placementIndicatorBaseColor = showPlacementValidity
-            ? pendingHasValidPosition
-                ? ValidPlacementIndicatorColor
-                : InvalidPlacementIndicatorColor
-            : InteractionIndicatorColor;
-        placementIndicator.SetActive(true);
-        AnimatePlacementIndicator();
-    }
-
-    private void AnimatePlacementIndicator()
-    {
-        if (placementIndicator == null ||
-            placementIndicatorRenderer == null ||
-            !placementIndicator.activeSelf)
-        {
-            return;
-        }
-
-        float wave = (Mathf.Sin(Time.unscaledTime * PlacementHaloPulseSpeed) + 1f) * 0.5f;
-        float scale = 1f + Mathf.Lerp(
-            -PlacementHaloPulseAmount,
-            PlacementHaloPulseAmount,
-            wave);
-        placementIndicator.transform.localScale = new Vector3(
-            placementIndicatorBaseScale.x * scale,
-            placementIndicatorBaseScale.y * scale,
-            1f);
-
-        Color animatedColor = placementIndicatorBaseColor;
-        animatedColor.a *= Mathf.Lerp(0.78f, 1f, wave);
-        placementIndicatorRenderer.color = animatedColor;
-    }
-
-    private void HidePlacementIndicator()
-    {
-        if (placementIndicator != null && placementIndicator.activeSelf)
-        {
-            placementIndicator.SetActive(false);
         }
     }
 
@@ -1403,21 +901,11 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         }
 
         state = LevelState.Testing;
-        testStartedAt = Time.time;
-        lastTestDuration = 0f;
-        hasTestDuration = true;
-        stoppedAt = -1f;
-        pauseStartedAt = -1f;
         resultMessage = string.Empty;
         prize.gameObject.SetActive(true);
         prize.localScale = prizeInitialScale;
 
-        ball.gameObject.SetActive(true);
-        ball.transform.SetPositionAndRotation(ballSpawnPoint.position, ballSpawnPoint.rotation);
-        ball.isKinematic = false;
-        ball.angularVelocity = Vector3.zero;
-        ball.linearVelocity = GetBallLaunchDirection() * launchSpeed;
-        ball.WakeUp();
+        ballTestController.Start(GetBallLaunchDirection(), launchSpeed);
         status = "Test running: the ball must collect the prize.";
         TestStarted?.Invoke();
     }
@@ -1460,16 +948,18 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
                      connector < piece.ConnectorCount;
                      connector++)
                 {
-                    if (IsPlacedConnectorOccupied(piece, connector) ||
-                        HorizontalDistance(
+                    if (placementValidator.IsPlacedConnectorOccupied(piece, connector) ||
+                        BallPuzzlePlacementValidator.HorizontalDistance(
                             piece.GetConnectorPosition(connector),
-                            startAnchor.position) > ConnectionPositionTolerance)
+                            startAnchor.position) >
+                        BallPuzzlePlacementValidator.ConnectionPositionTolerance)
                     {
                         continue;
                     }
 
                     Vector3 launchDirection =
-                        -Flatten(piece.GetConnectorDirection(connector));
+                        -BallPuzzlePlacementValidator.Flatten(
+                            piece.GetConnectorDirection(connector));
                     if (launchDirection.sqrMagnitude > Mathf.Epsilon)
                     {
                         return launchDirection;
@@ -1481,94 +971,48 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         return ballSpawnPoint.forward;
     }
 
-    private void TogglePause()
-    {
-        if (state == LevelState.Testing)
-        {
-            // Conserva el movimiento para continuar desde el mismo punto.
-            pausedLinearVelocity = ball.linearVelocity;
-            pausedAngularVelocity = ball.angularVelocity;
-            FreezeBall();
-            pauseStartedAt = Time.time;
-            state = LevelState.Paused;
-            status = "PAUSED - press RESUME to continue.";
-            return;
-        }
-
-        if (state != LevelState.Paused)
-        {
-            return;
-        }
-
-        // Descuenta del test todo el tiempo que la bola estuvo pausada.
-        float pausedDuration = Time.time - pauseStartedAt;
-        testStartedAt += pausedDuration;
-        if (stoppedAt >= 0f)
-        {
-            stoppedAt += pausedDuration;
-        }
-
-        ball.isKinematic = false;
-        ball.linearVelocity = pausedLinearVelocity;
-        ball.angularVelocity = pausedAngularVelocity;
-        ball.WakeUp();
-        pauseStartedAt = -1f;
-        state = LevelState.Testing;
-        status = "Test running: the ball must collect the prize.";
-    }
-
     private void UpdateBallTest()
     {
-        if (Vector3.Distance(ball.position, prize.position) <= prizeCollectionDistance)
+        switch (ballTestController.Evaluate())
         {
-            CompleteLevel();
-            return;
-        }
-        if (ball.position.y < fallHeight)
-        {
-            FailTest("The ball fell off the track.");
-            return;
-        }
-        if (Time.time - testStartedAt >= maximumTestDuration)
-        {
-            FailTest("The test timed out.");
-            return;
-        }
-
-        if (Time.time - testStartedAt > 2f && ball.linearVelocity.sqrMagnitude < 0.04f)
-        {
-            if (stoppedAt < 0f)
-            {
-                stoppedAt = Time.time;
-            }
-            else if (Time.time - stoppedAt >= stoppedDuration)
-            {
+            case BallPuzzleBallTestResult.PrizeCollected:
+                CompleteLevel();
+                break;
+            case BallPuzzleBallTestResult.Fell:
+                FailTest("The ball fell off the track.");
+                break;
+            case BallPuzzleBallTestResult.TimedOut:
+                FailTest("The test timed out.");
+                break;
+            case BallPuzzleBallTestResult.Stopped:
                 FailTest("The ball has stopped.");
-            }
-        }
-        else
-        {
-            stoppedAt = -1f;
+                break;
         }
     }
 
     private void FailTest(string reason)
     {
-        CaptureCurrentTestDuration();
-        FreezeBall();
+        ballTestController.Finish();
         state = LevelState.Failure;
         status = reason;
-        resultMessage = GetResultMessage();
+        resultMessage = BallPuzzleLevelUiPresenter.CreateResultMessage(
+            ballTestController.LastTestDuration,
+            placedPieces.Count,
+            targetPieceCount);
     }
 
     private void CompleteLevel()
     {
-        CaptureCurrentTestDuration();
-        RegisterCompletedLevelTime();
-        FreezeBall();
+        ballTestController.Finish();
+        BallPuzzleProgressStore.RegisterCompletedLevelTime(
+            SceneManager.GetActiveScene().name,
+            ballTestController.LastTestDuration);
         state = LevelState.Success;
         status = "Prize collected! Level complete.";
-        resultMessage = GetResultMessage();
+        resultMessage = BallPuzzleLevelUiPresenter.CreateResultMessage(
+            ballTestController.LastTestDuration,
+            placedPieces.Count,
+            targetPieceCount);
         prize.localScale = prizeInitialScale * 1.35f;
         LevelCompleted?.Invoke();
     }
@@ -1576,15 +1020,14 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
     private void RetryTest()
     {
         state = LevelState.Build;
-        ResetBallForBuild();
+        ballTestController.ResetBallForBuild();
         StartBallTest();
     }
 
     private void ReturnToBuild()
     {
-        CaptureCurrentTestDuration();
         state = LevelState.Build;
-        ResetBallForBuild();
+        ballTestController.ResetBallForBuild();
         prize.gameObject.SetActive(true);
         prize.localScale = prizeInitialScale;
         status = "Adjust the layout and press PLAY again.";
@@ -1599,10 +1042,7 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
     private void ResetLayout()
     {
         CancelPendingPiece(false);
-        adjustedGoalPiece = null;
-        adjustedGoalConnectorIndex = -1;
-        hasAdjustedGoal = false;
-        prize.position = prizeInitialPosition;
+        goalBinding.Reset();
         foreach (CircuitPiece piece in placedPieces)
         {
             if (piece != null)
@@ -1618,39 +1058,14 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         straightRemaining = availableStraights;
         curveRemaining = availableCurves;
         halfStraightRemaining = availableHalfStraights;
-        curve90Remaining = availableCurve90s;
         state = LevelState.Build;
-        hasTestDuration = false;
-        lastTestDuration = 0f;
+        ballTestController.ClearDuration();
         resultMessage = string.Empty;
-        ResetBallForBuild();
+        ballTestController.ResetBallForBuild();
         prize.gameObject.SetActive(true);
         prize.localScale = prizeInitialScale;
         status = "Layout reset. Choose a piece to place it.";
         LayoutReset?.Invoke();
-    }
-
-    private void FreezeBall()
-    {
-        ball.linearVelocity = Vector3.zero;
-        ball.angularVelocity = Vector3.zero;
-        ball.isKinematic = true;
-    }
-
-    private void ResetBallForBuild()
-    {
-        if (!ball.isKinematic)
-        {
-            ball.linearVelocity = Vector3.zero;
-            ball.angularVelocity = Vector3.zero;
-        }
-
-        ball.isKinematic = true;
-        ball.transform.SetPositionAndRotation(ballSpawnPoint.position, ballSpawnPoint.rotation);
-        ball.gameObject.SetActive(true);
-        pauseStartedAt = -1f;
-        pausedLinearVelocity = Vector3.zero;
-        pausedAngularVelocity = Vector3.zero;
     }
 
     private void AnimatePrize()
@@ -1660,63 +1075,6 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
             return;
         }
         prize.Rotate(0f, 65f * Time.deltaTime, 0f, Space.World);
-    }
-
-    private bool TryGetBuildPoint(Vector2 mousePosition, out Vector3 point)
-    {
-        Ray ray = buildCamera.ScreenPointToRay(mousePosition);
-        Plane plane = new Plane(Vector3.up, new Vector3(0f, buildSurfaceHeight, 0f));
-        if (plane.Raycast(ray, out float distance))
-        {
-            point = ray.GetPoint(distance);
-            point.y = buildSurfaceHeight;
-            return true;
-        }
-
-        point = Vector3.zero;
-        return false;
-    }
-
-    private bool IsInsideBuildArea(CircuitPiece piece)
-    {
-        Bounds bounds = piece.GetRenderBounds();
-        return bounds.min.x >= buildAreaCenter.x - buildHalfSize &&
-               bounds.max.x <= buildAreaCenter.x + buildHalfSize &&
-               bounds.min.z >= buildAreaCenter.y - buildHalfSize &&
-               bounds.max.z <= buildAreaCenter.y + buildHalfSize;
-    }
-
-    private bool HasValidConnection(CircuitPiece candidate)
-    {
-        for (int candidateConnector = 0;
-             candidateConnector < candidate.ConnectorCount;
-             candidateConnector++)
-        {
-            foreach (CircuitPiece placedPiece in placedPieces)
-            {
-                if (placedPiece == null)
-                {
-                    continue;
-                }
-
-                for (int placedConnector = 0;
-                     placedConnector < placedPiece.ConnectorCount;
-                     placedConnector++)
-                {
-                    if (!IsPlacedConnectorOccupied(placedPiece, placedConnector) &&
-                        AreConnectorsAligned(
-                            candidate,
-                            candidateConnector,
-                            placedPiece,
-                            placedConnector))
-                    {
-                        return true;
-                    }
-                }
-            }
-        }
-
-        return false;
     }
 
     private bool TryAlignPendingPieceToConnectionTarget()
@@ -1752,8 +1110,10 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
                      placedConnector < placedPiece.ConnectorCount;
                      placedConnector++)
                 {
-                    if (IsPlacedConnectorOccupied(placedPiece, placedConnector) ||
-                        !AreConnectorDirectionsOpposite(
+                    if (placementValidator.IsPlacedConnectorOccupied(
+                            placedPiece,
+                            placedConnector) ||
+                        !BallPuzzlePlacementValidator.AreConnectorDirectionsOpposite(
                             pendingPiece,
                             candidateConnector,
                             placedPiece,
@@ -1828,76 +1188,7 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
     private void ApplyPendingPieceOffset(Vector3 offset)
     {
         pendingPiece.transform.position += offset;
-        RestPendingPieceOnBuildSurface();
-    }
-
-    private bool IsPlacedConnectorOccupied(CircuitPiece piece, int connector)
-    {
-        foreach (CircuitPiece otherPiece in placedPieces)
-        {
-            if (otherPiece == null || otherPiece == piece)
-            {
-                continue;
-            }
-
-            for (int otherConnector = 0;
-                 otherConnector < otherPiece.ConnectorCount;
-                 otherConnector++)
-            {
-                if (AreConnectorsAligned(piece, connector, otherPiece, otherConnector))
-                {
-                    return true;
-                }
-            }
-        }
-
-        return false;
-    }
-
-    private static bool AreConnectorsAligned(
-        CircuitPiece firstPiece,
-        int firstConnector,
-        CircuitPiece secondPiece,
-        int secondConnector)
-    {
-        Vector3 firstPosition = firstPiece.GetConnectorPosition(firstConnector);
-        Vector3 secondPosition = secondPiece.GetConnectorPosition(secondConnector);
-        if (HorizontalDistance(firstPosition, secondPosition) > ConnectionPositionTolerance)
-        {
-            return false;
-        }
-
-        return AreConnectorDirectionsOpposite(
-            firstPiece,
-            firstConnector,
-            secondPiece,
-            secondConnector);
-    }
-
-    private static bool AreConnectorDirectionsOpposite(
-        CircuitPiece firstPiece,
-        int firstConnector,
-        CircuitPiece secondPiece,
-        int secondConnector)
-    {
-        Vector3 firstDirection = Flatten(firstPiece.GetConnectorDirection(firstConnector));
-        Vector3 secondDirection = Flatten(secondPiece.GetConnectorDirection(secondConnector));
-        return firstDirection.sqrMagnitude > Mathf.Epsilon &&
-               secondDirection.sqrMagnitude > Mathf.Epsilon &&
-               Vector3.Dot(firstDirection, secondDirection) <= ConnectionDirectionDot;
-    }
-
-    private static float HorizontalDistance(Vector3 first, Vector3 second)
-    {
-        return Vector2.Distance(
-            new Vector2(first.x, first.z),
-            new Vector2(second.x, second.z));
-    }
-
-    private static Vector3 Flatten(Vector3 direction)
-    {
-        direction.y = 0f;
-        return direction.normalized;
+        pendingPiecePositioner.RestOnBuildSurface(pendingPiece);
     }
 
     private int GetRemainingCount(CircuitPiece prefab)
@@ -1910,8 +1201,6 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
                 return curveRemaining;
             case CircuitPieceType.HalfStraight:
                 return halfStraightRemaining;
-            case CircuitPieceType.Curve90:
-                return curve90Remaining;
             default:
                 return 0;
         }
@@ -1930,9 +1219,6 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
             case CircuitPieceType.HalfStraight:
                 halfStraightRemaining = Mathf.Max(0, halfStraightRemaining - 1);
                 break;
-            case CircuitPieceType.Curve90:
-                curve90Remaining = Mathf.Max(0, curve90Remaining - 1);
-                break;
         }
     }
 
@@ -1942,29 +1228,15 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
                testingControlsPanel != null && resultPanel != null &&
                rotationControlsPanel != null &&
                straightButton != null && curveButton != null && testButton != null &&
-               pauseButton != null && pauseButtonLabel != null &&
                rotateYButton != null && rotateYCounterClockwiseButton != null &&
                placeButton != null &&
-               resetButton != null && stopButton != null && retryButton != null &&
-               editButton != null && resultResetButton != null && straightButtonLabel != null &&
+               resetButton != null && retryButton != null &&
+               editButton != null && straightButtonLabel != null &&
                curveButtonLabel != null && testingLabel != null && statusLabel != null &&
                inventoryStatusLabel != null && resultTitleLabel != null && resultMessageLabel != null &&
                straightPieceCard != null && curve45PieceCard != null &&
                halfStraightPieceCard != null && halfStraightPieceCard.Button != null &&
-               HasValidCurve90Configuration() &&
                HasLockedPieceCards();
-    }
-
-    private bool HasValidCurve90Configuration()
-    {
-        if (curve90PiecePrefab == null && curve90PieceCard == null)
-        {
-            return availableCurve90s == 0;
-        }
-
-        return curve90PiecePrefab != null &&
-               curve90PieceCard != null &&
-               curve90PieceCard.Button != null;
     }
 
     private bool HasLockedPieceCards()
@@ -1990,10 +1262,6 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         straightPieceCard.PointerPressed += SelectStraightPiece;
         curve45PieceCard.PointerPressed += SelectCurvePiece;
         halfStraightPieceCard.PointerPressed += SelectHalfStraightPiece;
-        if (curve90PieceCard != null)
-        {
-            curve90PieceCard.PointerPressed += SelectCurve90Piece;
-        }
         rotateYButton.onClick.AddListener(RotatePendingPieceY);
         rotateYCounterClockwiseButton.onClick.AddListener(RotatePendingPieceYCounterClockwise);
         placeButton.onClick.AddListener(PlacePendingPiece);
@@ -2006,9 +1274,7 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         {
             cancelPlayButton.onClick.AddListener(HidePlayConfirmationDialog);
         }
-        pauseButton.onClick.AddListener(TogglePause);
         resetButton.onClick.AddListener(ResetLayout);
-        stopButton.onClick.AddListener(ReturnToBuild);
         retryButton.onClick.AddListener(ReturnToBuild);
         editButton.onClick.AddListener(ExitToMainMenu);
     }
@@ -2018,7 +1284,6 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         if (straightPieceCard != null) straightPieceCard.PointerPressed -= SelectStraightPiece;
         if (curve45PieceCard != null) curve45PieceCard.PointerPressed -= SelectCurvePiece;
         if (halfStraightPieceCard != null) halfStraightPieceCard.PointerPressed -= SelectHalfStraightPiece;
-        if (curve90PieceCard != null) curve90PieceCard.PointerPressed -= SelectCurve90Piece;
         if (rotateYButton != null) rotateYButton.onClick.RemoveListener(RotatePendingPieceY);
         if (rotateYCounterClockwiseButton != null)
         {
@@ -2034,9 +1299,7 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         {
             cancelPlayButton.onClick.RemoveListener(HidePlayConfirmationDialog);
         }
-        if (pauseButton != null) pauseButton.onClick.RemoveListener(TogglePause);
         if (resetButton != null) resetButton.onClick.RemoveListener(ResetLayout);
-        if (stopButton != null) stopButton.onClick.RemoveListener(ReturnToBuild);
         if (retryButton != null) retryButton.onClick.RemoveListener(ReturnToBuild);
         if (editButton != null) editButton.onClick.RemoveListener(ExitToMainMenu);
     }
@@ -2065,16 +1328,6 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         }
     }
 
-    private void SelectCurve90Piece()
-    {
-        if (curve90PieceCard != null &&
-            curve90PieceCard.ActiveInPalette &&
-            !curve90PieceCard.LockedInPalette)
-        {
-            BeginPlacement(curve90PiecePrefab, curve90PieceCard);
-        }
-    }
-
     private void RotatePendingPieceY()
     {
         RotatePendingPieceY(1);
@@ -2099,8 +1352,11 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
             (pendingRotationIndex + direction + orientationCount) %
             orientationCount;
 
-        ApplyPendingRotationAroundPivot();
-        RestPendingPieceOnBuildSurface();
+        pendingPiecePositioner.RotateAroundPivot(
+            pendingPiece,
+            pendingRotationPivotLocal,
+            pendingRotationIndex);
+        pendingPiecePositioner.RestOnBuildSurface(pendingPiece);
         EvaluatePendingPlacement();
         PieceRotated?.Invoke(pendingPiece);
         float angle = direction * rotationStep;
@@ -2108,331 +1364,65 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
                  " degrees around Y. Position unchanged.";
     }
 
-    private void ApplyPendingRotationAroundPivot()
+    private BallPuzzleLevelUiPresenter CreateUiPresenter()
     {
-        Quaternion targetRotation = GetPendingRotation();
-        Quaternion rotationDelta =
-            targetRotation * Quaternion.Inverse(pendingPiece.transform.rotation);
-        Vector3 pivotWorld =
-            pendingPiece.transform.TransformPoint(pendingRotationPivotLocal);
-        Vector3 rootOffset = pendingPiece.transform.position - pivotWorld;
-        Vector3 targetPosition = pivotWorld + rotationDelta * rootOffset;
-
-        pendingPiece.transform.SetPositionAndRotation(targetPosition, targetRotation);
+        return new BallPuzzleLevelUiPresenter(
+            levelTitlePanel,
+            moveLevelTitleDuringTest,
+            testingLevelTitleAnchoredPosition,
+            buildControlsPanel,
+            buildActionsPanel,
+            testingControlsPanel,
+            resultPanel,
+            rotationControlsPanel,
+            testButton,
+            resetButton,
+            rotateYButton,
+            rotateYCounterClockwiseButton,
+            placeButton,
+            editButton,
+            testingLabel,
+            statusLabel,
+            inventoryStatusLabel,
+            resultTitleLabel,
+            resultMessageLabel,
+            straightPieceCard,
+            curve45PieceCard,
+            halfStraightPieceCard,
+            lockedPieceCards);
     }
 
     private void RefreshUi()
     {
-        ApplyPieceCardActiveStates();
-
         bool isBuilding = state == LevelState.Build;
         bool isTesting = state == LevelState.Testing;
-        bool isPaused = state == LevelState.Paused;
-        bool isTestActive = isTesting || isPaused;
         bool isShowingResult = state == LevelState.Failure || state == LevelState.Success;
+        CircuitPieceType? selectedPieceType = pendingPiece != null
+            ? pendingPiece.PieceType
+            : null;
+        float displayedTestDuration = ballTestController != null
+            ? ballTestController.GetDisplayedDuration()
+            : 0f;
 
-        UpdateLevelTitleLayout(!isBuilding);
-        if (levelTitlePanel != null)
-        {
-            levelTitlePanel.gameObject.SetActive(!isShowingResult);
-        }
-        buildControlsPanel.SetActive(isBuilding);
-        buildActionsPanel.SetActive(isBuilding);
-        testingControlsPanel.SetActive(false);
-        resultPanel.SetActive(isShowingResult);
-        rotationControlsPanel.SetActive(isBuilding);
-
-        bool straightSelected = pendingPiece != null && pendingPiece.PieceType == CircuitPieceType.Straight;
-        bool curveSelected = pendingPiece != null && pendingPiece.PieceType == CircuitPieceType.Curve45Right;
-        bool halfStraightSelected = pendingPiece != null &&
-                                    pendingPiece.PieceType == CircuitPieceType.HalfStraight;
-        bool curve90Selected = pendingPiece != null &&
-                               pendingPiece.PieceType == CircuitPieceType.Curve90;
-        bool straightAvailable = straightPieceCard.ActiveInPalette &&
-                                 !straightPieceCard.LockedInPalette;
-        bool curveAvailable = curve45PieceCard.ActiveInPalette &&
-                              !curve45PieceCard.LockedInPalette;
-        bool halfStraightAvailable = halfStraightPieceCard.ActiveInPalette &&
-                                     !halfStraightPieceCard.LockedInPalette;
-        straightPieceCard.SetState(
-            straightAvailable,
-            straightAvailable && !straightSelected && straightRemaining > 0,
-            straightSelected,
-            straightRemaining);
-        curve45PieceCard.SetState(
-            curveAvailable,
-            curveAvailable && !curveSelected && curveRemaining > 0,
-            curveSelected,
-            curveRemaining);
-        halfStraightPieceCard.SetState(
-            halfStraightAvailable,
-            halfStraightAvailable && !halfStraightSelected && halfStraightRemaining > 0,
-            halfStraightSelected,
-            halfStraightRemaining);
-        if (curve90PieceCard != null)
-        {
-            bool curve90Available = curve90PieceCard.ActiveInPalette &&
-                                    !curve90PieceCard.LockedInPalette;
-            curve90PieceCard.SetState(
-                curve90Available,
-                curve90Available && !curve90Selected && curve90Remaining > 0,
-                curve90Selected,
-                curve90Remaining);
-        }
-
-        foreach (PieceSelectionCard card in lockedPieceCards)
-        {
-            if (card == halfStraightPieceCard || card == curve90PieceCard)
-            {
-                continue;
-            }
-
-            bool unlocked = !card.LockedInPalette;
-            card.SetState(unlocked, false, false, unlocked ? 1 : 0);
-        }
-
-        testButton.interactable = isBuilding &&
-                                  pendingPiece == null &&
-                                  placedPieces.Count > 0;
-        pauseButton.interactable = isTestActive;
-        stopButton.interactable = isTestActive;
-        resetButton.interactable = (isBuilding || isTestActive) &&
-                                   (placedPieces.Count > 0 || pendingPiece != null);
-        pauseButtonLabel.text = isPaused ? "RESUME" : "PAUSE";
-        bool canManipulatePendingPiece =
-            isBuilding &&
-            pendingPiece != null &&
-            pendingPiece.gameObject.activeSelf &&
-            placementState == PlacementState.Positioned;
-        rotateYButton.interactable = canManipulatePendingPiece;
-        rotateYCounterClockwiseButton.interactable = canManipulatePendingPiece;
-        placeButton.interactable = canManipulatePendingPiece && pendingHasValidPosition;
-
-        if (isTestActive)
-        {
-            float currentTestTime = isPaused ? pauseStartedAt : Time.time;
-            testingLabel.text = "TEST  " +
-                                (currentTestTime - testStartedAt).ToString("0.0") + " s";
-        }
-
-        if (isShowingResult)
-        {
-            bool reachedGoal = state == LevelState.Success;
-            resultTitleLabel.text = reachedGoal
-                ? "GOAL"
-                : "FAIL";
-            resultMessageLabel.text = string.IsNullOrEmpty(resultMessage)
-                ? status
-                : resultMessage;
-            editButton.gameObject.SetActive(!reachedGoal);
-        }
-
-        if (isShowingResult)
-        {
-            statusLabel.text = string.Empty;
-            inventoryStatusLabel.text = string.Empty;
-        }
-        else
-        {
-            statusLabel.text = status;
-            inventoryStatusLabel.text = isTestActive
-                ? GetElapsedTimeStatus()
-                : GetInventoryStatus(
-                    straightSelected,
-                    halfStraightSelected,
-                    curveSelected,
-                    curve90Selected);
-        }
-    }
-
-    private void UpdateLevelTitleLayout(bool useTestingPosition)
-    {
-        if (!moveLevelTitleDuringTest || levelTitlePanel == null)
-        {
-            return;
-        }
-
-        if (useTestingPosition)
-        {
-            if (isLevelTitleInTestingPosition)
-            {
-                return;
-            }
-
-            buildTitleAnchorMin = levelTitlePanel.anchorMin;
-            buildTitleAnchorMax = levelTitlePanel.anchorMax;
-            buildTitleAnchoredPosition = levelTitlePanel.anchoredPosition;
-            buildTitleSizeDelta = levelTitlePanel.sizeDelta;
-            buildTitlePivot = levelTitlePanel.pivot;
-            Vector2 titleSize = levelTitlePanel.rect.size;
-
-            levelTitlePanel.anchorMin = new Vector2(0.5f, 1f);
-            levelTitlePanel.anchorMax = new Vector2(0.5f, 1f);
-            levelTitlePanel.pivot = new Vector2(0.5f, 1f);
-            levelTitlePanel.sizeDelta = titleSize;
-            levelTitlePanel.anchoredPosition = testingLevelTitleAnchoredPosition;
-            isLevelTitleInTestingPosition = true;
-            return;
-        }
-
-        if (!isLevelTitleInTestingPosition)
-        {
-            return;
-        }
-
-        levelTitlePanel.anchorMin = buildTitleAnchorMin;
-        levelTitlePanel.anchorMax = buildTitleAnchorMax;
-        levelTitlePanel.pivot = buildTitlePivot;
-        levelTitlePanel.sizeDelta = buildTitleSizeDelta;
-        levelTitlePanel.anchoredPosition = buildTitleAnchoredPosition;
-        isLevelTitleInTestingPosition = false;
-    }
-
-    private void ApplyPieceCardActiveStates()
-    {
-        straightPieceCard.ApplyInspectorActiveState();
-        curve45PieceCard.ApplyInspectorActiveState();
-        halfStraightPieceCard.ApplyInspectorActiveState();
-        if (curve90PieceCard != null)
-        {
-            curve90PieceCard.ApplyInspectorActiveState();
-        }
-
-        foreach (PieceSelectionCard card in lockedPieceCards)
-        {
-            card.ApplyInspectorActiveState();
-        }
-    }
-
-    private string GetInventoryStatus(
-        bool straightSelected,
-        bool halfStraightSelected,
-        bool curveSelected,
-        bool curve90Selected)
-    {
-        if (straightSelected)
-        {
-            return "SELECTED: STRAIGHT  -  x" + straightRemaining;
-        }
-        if (curveSelected)
-        {
-            return "SELECTED: 45° CURVE  -  x" + curveRemaining;
-        }
-        if (halfStraightSelected)
-        {
-            return "SELECTED: HALF STRAIGHT  -  x" + halfStraightRemaining;
-        }
-        if (curve90Selected)
-        {
-            return "SELECTED: 90\u00b0 CURVE  -  x" + curve90Remaining;
-        }
-
-        bool straightActive = straightPieceCard.ActiveInPalette &&
-                              !straightPieceCard.LockedInPalette;
-        bool curveActive = curve45PieceCard.ActiveInPalette &&
-                           !curve45PieceCard.LockedInPalette;
-        bool halfStraightActive = halfStraightPieceCard.ActiveInPalette &&
-                                  !halfStraightPieceCard.LockedInPalette;
-        bool curve90Active = curve90PieceCard != null &&
-                             curve90PieceCard.ActiveInPalette &&
-                             !curve90PieceCard.LockedInPalette;
-        List<string> inventory = new List<string>();
-        if (straightActive) inventory.Add("STRAIGHT x" + straightRemaining);
-        if (halfStraightActive) inventory.Add("HALF STRAIGHT x" + halfStraightRemaining);
-        if (curveActive) inventory.Add("45° CURVE x" + curveRemaining);
-        if (curve90Active) inventory.Add("90° CURVE x" + curve90Remaining);
-        return inventory.Count > 0 ? string.Join("  |  ", inventory) : "NO PIECES AVAILABLE";
-    }
-
-    private string GetElapsedTimeStatus()
-    {
-        return hasTestDuration
-            ? "TIME ON ROAD: " +
-              GetDisplayedTestDuration().ToString("0.0") + " s"
-            : string.Empty;
-    }
-
-    private float GetDisplayedTestDuration()
-    {
-        if (!hasTestDuration)
-        {
-            return 0f;
-        }
-
-        if (state == LevelState.Testing)
-        {
-            return Mathf.Max(0f, Time.time - testStartedAt);
-        }
-
-        if (state == LevelState.Paused)
-        {
-            return Mathf.Max(0f, pauseStartedAt - testStartedAt);
-        }
-
-        return lastTestDuration;
-    }
-
-    private void CaptureCurrentTestDuration()
-    {
-        if (!hasTestDuration)
-        {
-            return;
-        }
-
-        if (state == LevelState.Testing || state == LevelState.Paused)
-        {
-            lastTestDuration = GetDisplayedTestDuration();
-        }
-    }
-
-    private string GetResultMessage()
-    {
-        return "TIME  " + FormatTime(lastTestDuration) +
-               "\nPIECES  " + placedPieces.Count + " / " + targetPieceCount;
-    }
-
-    private void RegisterCompletedLevelTime()
-    {
-        string sceneName = SceneManager.GetActiveScene().name;
-        if (string.IsNullOrWhiteSpace(sceneName))
-        {
-            return;
-        }
-
-        string levelTimeKey = LevelCompletionTimeKeyPrefix + sceneName;
-        float totalTime = GetTotalCompletionTime();
-
-        if (!PlayerPrefs.HasKey(levelTimeKey))
-        {
-            PlayerPrefs.SetFloat(levelTimeKey, lastTestDuration);
-            PlayerPrefs.SetFloat(TotalCompletionTimeKey, totalTime + lastTestDuration);
-            PlayerPrefs.Save();
-            return;
-        }
-
-        float previousLevelTime = Mathf.Max(
-            0f,
-            PlayerPrefs.GetFloat(levelTimeKey, lastTestDuration));
-        if (lastTestDuration >= previousLevelTime)
-        {
-            return;
-        }
-
-        PlayerPrefs.SetFloat(levelTimeKey, lastTestDuration);
-        PlayerPrefs.SetFloat(
-            TotalCompletionTimeKey,
-            Mathf.Max(0f, totalTime - previousLevelTime + lastTestDuration));
-        PlayerPrefs.Save();
-    }
-
-    private static float GetTotalCompletionTime()
-    {
-        return Mathf.Max(0f, PlayerPrefs.GetFloat(TotalCompletionTimeKey, 0f));
-    }
-
-    private static string FormatTime(float seconds)
-    {
-        return Mathf.Max(0f, seconds).ToString("0.0") + " s";
+        uiPresenter.Refresh(new BallPuzzleLevelUiState(
+            isBuilding,
+            isTesting,
+            isShowingResult,
+            state == LevelState.Success,
+            selectedPieceType,
+            pendingPiece != null,
+            pendingPiece != null && pendingPiece.gameObject.activeSelf,
+            placementState == PlacementState.Positioned,
+            pendingHasValidPosition,
+            HasCompleteAnchorAlignment(),
+            placedPieces.Count,
+            straightRemaining,
+            curveRemaining,
+            halfStraightRemaining,
+            status,
+            resultMessage,
+            ballTestController != null && ballTestController.HasTestDuration,
+            displayedTestDuration));
     }
 
 #if UNITY_EDITOR
@@ -2462,7 +1452,6 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         Button newCurveButton,
         Button newTestButton,
         Button newResetButton,
-        Button newStopButton,
         Button newRetryButton,
         Button newEditButton,
         Button newResultResetButton,
@@ -2487,7 +1476,6 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         curveButton = newCurveButton;
         testButton = newTestButton;
         resetButton = newResetButton;
-        stopButton = newStopButton;
         retryButton = newRetryButton;
         editButton = newEditButton;
         resultResetButton = newResultResetButton;

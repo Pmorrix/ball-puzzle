@@ -2,8 +2,10 @@ using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.SceneManagement;
 using UnityEngine.UI;
+using System.Collections;
 
 [DisallowMultipleComponent]
+[RequireComponent(typeof(AudioSource))]
 public sealed class MainMenuController : MonoBehaviour
 {
     private const string LastPlayedLevelKey = "BallPuzzleLastPlayedLevel";
@@ -23,6 +25,17 @@ public sealed class MainMenuController : MonoBehaviour
     [SerializeField] private GameObject controlsPanel;
     [SerializeField] private GameObject creditsPanel;
 
+    [Header("Audio")]
+    [SerializeField] private AudioSource audioSource;
+    [SerializeField] private AudioClip backgroundMusic;
+    [SerializeField] private AudioClip piecePlaceSound;
+    [SerializeField] private AudioClip achievementSound;
+    [SerializeField] private AudioClip failureSound;
+    [SerializeField, Range(0f, 1f)] private float musicVolume = 0.32f;
+    [SerializeField, Range(0f, 1f)] private float effectsVolume = 0.75f;
+
+    private bool mainMenuWasShown;
+
     private void Awake()
     {
         Time.timeScale = 1f;
@@ -41,6 +54,7 @@ public sealed class MainMenuController : MonoBehaviour
         quitButton.onClick.AddListener(Quit);
         controlsBackButton.onClick.AddListener(ShowMainMenu);
         creditsBackButton.onClick.AddListener(ShowMainMenu);
+        ConfigureAudio();
         ShowMainMenu();
     }
 
@@ -100,7 +114,7 @@ public sealed class MainMenuController : MonoBehaviour
     {
         PlayerPrefs.DeleteAll();
         PlayerPrefs.Save();
-        LoadLevel(firstLevelScene);
+        StartCoroutine(PlayAchievementAndLoad(firstLevelScene));
     }
 
     private void Continue()
@@ -119,7 +133,7 @@ public sealed class MainMenuController : MonoBehaviour
             lastPlayedLevel = firstLevelScene;
         }
 
-        LoadLevel(lastPlayedLevel);
+        StartCoroutine(PlayAchievementAndLoad(lastPlayedLevel));
     }
 
     private void LoadLevel(string sceneName)
@@ -143,17 +157,63 @@ public sealed class MainMenuController : MonoBehaviour
 
     private void ShowControls()
     {
+        PlayEffect(piecePlaceSound);
         ShowPanel(controlsPanel, controlsBackButton);
     }
 
     private void ShowCredits()
     {
+        PlayEffect(piecePlaceSound);
         ShowPanel(creditsPanel, creditsBackButton);
     }
 
     private void ShowMainMenu()
     {
+        if (mainMenuWasShown && mainPanel != null && !mainPanel.activeSelf)
+        {
+            PlayEffect(failureSound);
+        }
         ShowPanel(mainPanel, playButton);
+        mainMenuWasShown = true;
+    }
+
+    private void ConfigureAudio()
+    {
+        if (audioSource == null)
+        {
+            audioSource = GetComponent<AudioSource>();
+        }
+
+        if (audioSource != null && backgroundMusic != null)
+        {
+            audioSource.playOnAwake = false;
+            audioSource.loop = true;
+            audioSource.volume = musicVolume;
+            audioSource.clip = backgroundMusic;
+            audioSource.Play();
+        }
+    }
+
+    private void PlayEffect(AudioClip clip)
+    {
+        if (audioSource != null && clip != null)
+        {
+            audioSource.PlayOneShot(clip, effectsVolume);
+        }
+    }
+
+    private IEnumerator PlayAchievementAndLoad(string sceneName)
+    {
+        PlayEffect(achievementSound);
+        float delay = achievementSound != null
+            ? Mathf.Min(0.55f, achievementSound.length)
+            : 0f;
+        if (delay > 0f)
+        {
+            yield return new WaitForSecondsRealtime(delay);
+        }
+
+        LoadLevel(sceneName);
     }
 
     private void ShowPanel(GameObject panelToShow, Button selectedButton)
@@ -170,6 +230,7 @@ public sealed class MainMenuController : MonoBehaviour
 
     private void Quit()
     {
+        PlayEffect(failureSound);
 #if UNITY_EDITOR
         UnityEditor.EditorApplication.isPlaying = false;
 #else

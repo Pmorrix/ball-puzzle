@@ -15,11 +15,16 @@ public sealed class CircuitPiece : MonoBehaviour
     [SerializeField] private CircuitPieceType pieceType;
     [SerializeField] private string displayName = "Piece";
     [SerializeField] private Transform[] connectors;
+    [SerializeField] private Vector3[] ballPathPoints;
     [SerializeField, Min(0)] private int incomingConnectorIndex;
 
     public CircuitPieceType PieceType => pieceType;
     public string DisplayName => displayName;
     public int ConnectorCount => connectors != null ? connectors.Length : 0;
+    public int BallPathPointCount =>
+        ballPathPoints != null && ballPathPoints.Length >= 2
+            ? ballPathPoints.Length
+            : ConnectorCount;
     public int IncomingConnectorIndex => Mathf.Clamp(incomingConnectorIndex, 0, Mathf.Max(0, ConnectorCount - 1));
 
     public Vector3 GetConnectorPosition(int index)
@@ -30,6 +35,16 @@ public sealed class CircuitPiece : MonoBehaviour
     public Vector3 GetConnectorDirection(int index)
     {
         return connectors[index].forward;
+    }
+
+    public Vector3 GetBallPathPointPosition(int index)
+    {
+        if (ballPathPoints != null && ballPathPoints.Length >= 2)
+        {
+            return transform.TransformPoint(ballPathPoints[index]);
+        }
+
+        return GetConnectorPosition(index);
     }
 
     public Bounds GetRenderBounds()

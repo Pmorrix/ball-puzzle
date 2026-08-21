@@ -1,0 +1,15 @@
+fileFormatVersion: 2
+guid: d1fc2cfc268216f4087767409f2dc3aa
+NativeFormatImporter:
+  externalObjects: {}
+  mainObjectFileID: 100100000
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 156749
+  packageName: Interactive Comic Maker
+  packageVersion: 1.3
+  assetPath: Assets/ComicCreator/Prefabs/ButtonNextPage.prefab
+  uploadId: 408750

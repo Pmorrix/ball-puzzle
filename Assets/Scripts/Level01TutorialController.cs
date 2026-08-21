@@ -39,6 +39,8 @@ public sealed class Level01TutorialController : MonoBehaviour
     private Vector3 goalOriginalScale;
     private Vector3 ballOriginalScale;
     private Vector3 goalOriginalPosition;
+    private bool introSequenceStarted;
+    private bool introSequenceFinished;
 
     private void Awake()
     {
@@ -69,9 +71,20 @@ public sealed class Level01TutorialController : MonoBehaviour
     {
         Subscribe();
         HideAllHints();
+
+        if (introSequenceStarted && !introSequenceFinished)
+        {
+            StartCoroutine(RunIntroSequence());
+        }
     }
 
     private IEnumerator Start()
+    {
+        introSequenceStarted = true;
+        yield return RunIntroSequence();
+    }
+
+    private IEnumerator RunIntroSequence()
     {
         // Los tres objetos empiezan ocultos y aparecen en este orden.
         HideObject(goalObject);
@@ -82,10 +95,12 @@ public sealed class Level01TutorialController : MonoBehaviour
         yield return RevealObject(launcherObject, launcherOriginalScale);
         yield return RevealObject(ballObject, ballOriginalScale);
         ShowHint(stepOneHint);
+        introSequenceFinished = true;
     }
 
     private void OnDisable()
     {
+        StopAllCoroutines();
         Unsubscribe();
     }
 
