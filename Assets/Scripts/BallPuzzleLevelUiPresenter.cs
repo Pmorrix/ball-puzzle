@@ -11,6 +11,8 @@ internal readonly struct BallPuzzleLevelUiState
         bool isShowingResult,
         bool isSuccess,
         bool isChallengeIncomplete,
+        bool isCountdownExpired,
+        bool hasNextLevel,
         CircuitPieceType? selectedPieceType,
         bool hasPendingPiece,
         bool pendingPieceIsActive,
@@ -23,6 +25,7 @@ internal readonly struct BallPuzzleLevelUiState
         int halfStraightRemaining,
         string status,
         string resultMessage,
+        float countdownRemaining,
         bool hasTestDuration,
         float displayedTestDuration)
     {
@@ -31,6 +34,8 @@ internal readonly struct BallPuzzleLevelUiState
         IsShowingResult = isShowingResult;
         IsSuccess = isSuccess;
         IsChallengeIncomplete = isChallengeIncomplete;
+        IsCountdownExpired = isCountdownExpired;
+        HasNextLevel = hasNextLevel;
         SelectedPieceType = selectedPieceType;
         HasPendingPiece = hasPendingPiece;
         PendingPieceIsActive = pendingPieceIsActive;
@@ -43,6 +48,7 @@ internal readonly struct BallPuzzleLevelUiState
         HalfStraightRemaining = halfStraightRemaining;
         Status = status;
         ResultMessage = resultMessage;
+        CountdownRemaining = countdownRemaining;
         HasTestDuration = hasTestDuration;
         DisplayedTestDuration = displayedTestDuration;
     }
@@ -52,6 +58,8 @@ internal readonly struct BallPuzzleLevelUiState
     public bool IsShowingResult { get; }
     public bool IsSuccess { get; }
     public bool IsChallengeIncomplete { get; }
+    public bool IsCountdownExpired { get; }
+    public bool HasNextLevel { get; }
     public CircuitPieceType? SelectedPieceType { get; }
     public bool HasPendingPiece { get; }
     public bool PendingPieceIsActive { get; }
@@ -64,6 +72,7 @@ internal readonly struct BallPuzzleLevelUiState
     public int HalfStraightRemaining { get; }
     public string Status { get; }
     public string ResultMessage { get; }
+    public float CountdownRemaining { get; }
     public bool HasTestDuration { get; }
     public float DisplayedTestDuration { get; }
 }
@@ -76,6 +85,7 @@ internal sealed class BallPuzzleLevelUiPresenter
         new Color32(29, 91, 53, 213);
 
     private readonly RectTransform levelTitlePanel;
+    private readonly Outline levelTitleOutline;
     private readonly bool moveLevelTitleDuringTest;
     private readonly Vector2 testingLevelTitleAnchoredPosition;
     private readonly GameObject buildControlsPanel;
@@ -89,12 +99,15 @@ internal sealed class BallPuzzleLevelUiPresenter
     private readonly Button rotateYCounterClockwiseButton;
     private readonly Button placeButton;
     private readonly Button editButton;
+    private readonly TMP_Text resultActionButtonLabel;
     private readonly TMP_Text testButtonLabel;
     private readonly TMP_Text testingLabel;
     private readonly TMP_Text statusLabel;
     private readonly TMP_Text inventoryStatusLabel;
+    private readonly TMP_Text paletteSummaryLabel;
     private readonly TMP_Text resultTitleLabel;
     private readonly TMP_Text resultMessageLabel;
+    private readonly string levelTitleText;
     private readonly PieceSelectionCard straightPieceCard;
     private readonly PieceSelectionCard curve45PieceCard;
     private readonly PieceSelectionCard halfStraightPieceCard;
@@ -122,9 +135,11 @@ internal sealed class BallPuzzleLevelUiPresenter
         Button rotateYCounterClockwiseButton,
         Button placeButton,
         Button editButton,
+        Button resultActionButton,
         TMP_Text testingLabel,
         TMP_Text statusLabel,
         TMP_Text inventoryStatusLabel,
+        TMP_Text paletteSummaryLabel,
         TMP_Text resultTitleLabel,
         TMP_Text resultMessageLabel,
         PieceSelectionCard straightPieceCard,
@@ -133,6 +148,15 @@ internal sealed class BallPuzzleLevelUiPresenter
         PieceSelectionCard[] lockedPieceCards)
     {
         this.levelTitlePanel = levelTitlePanel;
+        levelTitleOutline = levelTitlePanel != null
+            ? levelTitlePanel.GetComponent<Outline>()
+            : null;
+        TMP_Text levelTitleLabel = levelTitlePanel != null
+            ? levelTitlePanel.Find("Title")?.GetComponent<TMP_Text>()
+            : null;
+        levelTitleText = levelTitleLabel != null
+            ? levelTitleLabel.text.Trim()
+            : string.Empty;
         this.moveLevelTitleDuringTest = moveLevelTitleDuringTest;
         this.testingLevelTitleAnchoredPosition = testingLevelTitleAnchoredPosition;
         this.buildControlsPanel = buildControlsPanel;
@@ -149,9 +173,13 @@ internal sealed class BallPuzzleLevelUiPresenter
         this.rotateYCounterClockwiseButton = rotateYCounterClockwiseButton;
         this.placeButton = placeButton;
         this.editButton = editButton;
+        resultActionButtonLabel = resultActionButton != null
+            ? resultActionButton.GetComponentInChildren<TMP_Text>(true)
+            : null;
         this.testingLabel = testingLabel;
         this.statusLabel = statusLabel;
         this.inventoryStatusLabel = inventoryStatusLabel;
+        this.paletteSummaryLabel = paletteSummaryLabel;
         this.resultTitleLabel = resultTitleLabel;
         this.resultMessageLabel = resultMessageLabel;
         this.straightPieceCard = straightPieceCard;
@@ -193,17 +221,23 @@ internal sealed class BallPuzzleLevelUiPresenter
         {
             statusLabel.text = string.Empty;
             inventoryStatusLabel.text = string.Empty;
+            if (paletteSummaryLabel != null)
+            {
+                paletteSummaryLabel.text = string.Empty;
+            }
             return;
         }
 
         statusLabel.text = state.Status;
-        inventoryStatusLabel.text = state.IsTesting
-            ? GetElapsedTimeStatus(state)
-            : GetInventoryStatus(
+        inventoryStatusLabel.text = GetCountdownStatus(state);
+        if (paletteSummaryLabel != null)
+        {
+            paletteSummaryLabel.text = GetInventoryStatus(
                 state,
                 straightSelected,
                 halfStraightSelected,
                 curveSelected);
+        }
     }
 
     public void ApplyPieceCardActiveStates()
@@ -219,12 +253,12 @@ internal sealed class BallPuzzleLevelUiPresenter
     }
 
     public static string CreateResultMessage(
-        float testDuration,
+        float countdownRemaining,
         int placedPieceCount,
         int targetPieceCount)
     {
-        return "TIME  " + FormatTime(testDuration) +
-               "\nPIECES  " + placedPieceCount + " / " + targetPieceCount;
+        return "TIME LEFT  " + FormatTime(countdownRemaining) +
+               "\nPIECES USED  " + placedPieceCount + " / " + targetPieceCount;
     }
 
     private void RefreshPieceCards(
@@ -310,19 +344,35 @@ internal sealed class BallPuzzleLevelUiPresenter
             return;
         }
 
-        resultTitleLabel.text = state.IsSuccess
+        string resultText = state.IsSuccess
             ? "GOAL"
             : state.IsChallengeIncomplete
                 ? "TRY AGAIN"
                 : "FAIL";
+        resultTitleLabel.text = string.IsNullOrEmpty(levelTitleText)
+            ? resultText
+            : levelTitleText + " " + resultText;
         resultMessageLabel.text = string.IsNullOrEmpty(state.ResultMessage)
             ? state.Status
             : state.ResultMessage;
         editButton.gameObject.SetActive(!state.IsSuccess);
+        if (resultActionButtonLabel != null)
+        {
+            resultActionButtonLabel.text = state.IsCountdownExpired
+                ? "RETRY"
+                : state.IsSuccess && state.HasNextLevel
+                    ? "NEXT"
+                    : "OK";
+        }
     }
 
     private void UpdateLevelTitleLayout(bool useTestingPosition)
     {
+        if (levelTitleOutline != null)
+        {
+            levelTitleOutline.enabled = true;
+        }
+
         if (!moveLevelTitleDuringTest || levelTitlePanel == null)
         {
             return;
@@ -396,11 +446,9 @@ internal sealed class BallPuzzleLevelUiPresenter
         return inventory.Count > 0 ? string.Join("  |  ", inventory) : "NO PIECES AVAILABLE";
     }
 
-    private static string GetElapsedTimeStatus(BallPuzzleLevelUiState state)
+    private static string GetCountdownStatus(BallPuzzleLevelUiState state)
     {
-        return state.HasTestDuration
-            ? "TIME ON ROAD: " + state.DisplayedTestDuration.ToString("0.0") + " s"
-            : string.Empty;
+        return "TIME LEFT: " + FormatTime(state.CountdownRemaining);
     }
 
     private static bool IsSelected(

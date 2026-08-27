@@ -2462,7 +2462,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 9d58e1dae7796a04da65603b8b7eb0e3, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::MainMenuController
-  firstLevelScene: Level01video
+  firstLevelScene: Level01
   playButton: {fileID: 143129986}
   continueButton: {fileID: 2200000005}
   controlsButton: {fileID: 772008933}

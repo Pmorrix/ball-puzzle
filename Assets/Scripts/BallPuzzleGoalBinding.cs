@@ -8,7 +8,6 @@ internal sealed class BallPuzzleGoalBinding
     private readonly Transform startAnchor;
     private readonly Transform goal;
     private readonly Vector3 initialGoalPosition;
-    private readonly float alignmentAssistDistance;
     private readonly float goalReachDistance;
 
     private CircuitPiece adjustedGoalPiece;
@@ -20,7 +19,6 @@ internal sealed class BallPuzzleGoalBinding
         Transform startAnchor,
         Transform goal,
         Vector3 initialGoalPosition,
-        float alignmentAssistDistance,
         float goalReachDistance)
     {
         this.placedPieces = placedPieces;
@@ -28,7 +26,6 @@ internal sealed class BallPuzzleGoalBinding
         this.startAnchor = startAnchor;
         this.goal = goal;
         this.initialGoalPosition = initialGoalPosition;
-        this.alignmentAssistDistance = alignmentAssistDistance;
         this.goalReachDistance = goalReachDistance;
     }
 
@@ -40,7 +37,9 @@ internal sealed class BallPuzzleGoalBinding
 
     public bool IsAdjustedPiece(CircuitPiece piece)
     {
-        return IsPieceConnectedToStart(piece) && IsGoalAlongPiece(piece);
+        return piece == adjustedGoalPiece &&
+               TryGetBoundGoalCenter(out _) &&
+               IsGoalAlongPiece(piece);
     }
 
     public void ReevaluateBinding()
@@ -79,20 +78,9 @@ internal sealed class BallPuzzleGoalBinding
 
     public bool HasValidGoal()
     {
-        if (goal == null)
-        {
-            return false;
-        }
-
-        foreach (CircuitPiece piece in GetStartConnectedPieces())
-        {
-            if (IsGoalAlongPiece(piece))
-            {
-                return true;
-            }
-        }
-
-        return false;
+        return goal != null &&
+               TryGetBoundGoalCenter(out _) &&
+               IsGoalAlongPiece(adjustedGoalPiece);
     }
 
     public void Reset()
@@ -105,7 +93,10 @@ internal sealed class BallPuzzleGoalBinding
     private bool TryGetBoundGoalCenter(out Vector3 worldCenter)
     {
         return TryGetStoredGoalCenter(out worldCenter) &&
-               IsPieceConnectedToStart(adjustedGoalPiece);
+               IsPieceConnectedToStart(adjustedGoalPiece) &&
+               !placementValidator.IsPlacedConnectorOccupied(
+                   adjustedGoalPiece,
+                   adjustedGoalConnectorIndex);
     }
 
     private bool TryGetStoredGoalCenter(out Vector3 worldCenter)
@@ -136,7 +127,7 @@ internal sealed class BallPuzzleGoalBinding
 
         foreach (CircuitPiece piece in startComponent)
         {
-            if (piece == null)
+            if (piece == null || !IsGoalAlongPiece(piece))
             {
                 continue;
             }
@@ -163,8 +154,7 @@ internal sealed class BallPuzzleGoalBinding
                 float distance = BallPuzzlePlacementValidator.HorizontalDistance(
                     connectorPosition,
                     initialGoalPosition);
-                if (distance > alignmentAssistDistance ||
-                    distance >= closestDistance)
+                if (distance >= closestDistance)
                 {
                     continue;
                 }

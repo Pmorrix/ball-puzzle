@@ -52,7 +52,12 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
 
     [Header("Level goals")]
     [SerializeField, Min(1)] private int targetPieceCount = 3;
+    [SerializeField] private bool requireAllPiecesForCompletion;
+    [SerializeField] private string nextLevelScene;
     [SerializeField, Min(0.1f)] private float targetTestDuration = 6f;
+
+    [Header("Countdown")]
+    [SerializeField, Min(1f)] private float initialCountdownSeconds = 180f;
 
     [Header("Piece placement")]
     [SerializeField, Min(0.01f)] private float placementGridSize = 0.05f;
@@ -96,6 +101,7 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
     [SerializeField] private TMP_Text testingLabel;
     [SerializeField] private TMP_Text statusLabel;
     [SerializeField] private TMP_Text inventoryStatusLabel;
+    [SerializeField] private TMP_Text paletteSummaryLabel;
     [SerializeField] private TMP_Text resultTitleLabel;
     [SerializeField] private TMP_Text resultMessageLabel;
     [SerializeField] private PieceSelectionCard straightPieceCard;
@@ -145,6 +151,16 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
     private Vector3 prizeInitialScale;
     private Vector3 prizeInitialPosition;
     private BallPuzzleGoalBinding goalBinding;
+    private float levelEntryCountdownSeconds;
+    private float countdownRemaining;
+    private bool countdownRunning;
+    private bool countdownExpired;
+
+    public static void ResetCountdownSession()
+    {
+        BallPuzzleCountdownSession.Reset();
+    }
+
     private void Awake()
     {
         if (introPresenter != null && introPresenter.activeSelf)
@@ -176,19 +192,12 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
             return;
         }
 
+        InitializeCountdown();
         BallPuzzleProgressStore.RememberCurrentLevel(
             SceneManager.GetActiveScene().name);
         uiPresenter = CreateUiPresenter();
         uiPresenter.ApplyPieceCardActiveStates();
         EnablePanelDragging(rotationControlsPanel);
-        Transform pieceCards = straightPieceCard.transform.parent;
-        GameObject piecePalettePanel = pieceCards != null && pieceCards.parent != null
-            ? pieceCards.parent.gameObject
-            : null;
-        Transform topBar = buildControlsPanel.transform.parent.Find("Top Bar");
-        LinkDraggablePanels(
-            piecePalettePanel,
-            topBar != null ? topBar.gameObject : null);
         HidePlayConfirmationDialog();
         WireUiEvents();
 
@@ -217,7 +226,6 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
             startAnchor,
             prize,
             prizeInitialPosition,
-            GetAnchorAlignmentAssistDistance(),
             prizeCollectionDistance);
         ballTestController = new BallPuzzleBallTestController(
             ball,
@@ -263,23 +271,11 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         return panel.AddComponent<DraggableUIPanel>();
     }
 
-    private static void LinkDraggablePanels(GameObject firstPanel, GameObject secondPanel)
-    {
-        DraggableUIPanel firstDraggable = EnablePanelDragging(firstPanel);
-        DraggableUIPanel secondDraggable = EnablePanelDragging(secondPanel);
-        if (firstDraggable == null || secondDraggable == null)
-        {
-            return;
-        }
-
-        firstDraggable.SetLinkedPanel(secondPanel.transform as RectTransform);
-        secondDraggable.SetLinkedPanel(firstPanel.transform as RectTransform);
-    }
-
     private void Update()
     {
         AnimatePrize();
         placementIndicator?.Animate();
+        UpdateCountdown();
 
         if (state == LevelState.Build)
         {
@@ -290,6 +286,7 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
             UpdateBallTest();
         }
 
+        StopCountdownWhenPlayBecomesAvailable();
         RefreshUi();
     }
 
@@ -669,6 +666,7 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
             return;
         }
 
+        StartCountdown();
         CancelPendingPiece(false);
         CircuitPiece piece = Instantiate(prefab, placedPiecesRoot);
         pendingPlacement.Begin(piece);
@@ -927,7 +925,7 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
 
         if (!HasCompleteAnchorAlignment())
         {
-            status = "Circuit incomplete: connect START to GOAL before pressing PLAY.";
+            status = "Circuit incomplete: GOAL must be on the final piece.";
             return false;
         }
 
@@ -997,7 +995,7 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         state = LevelState.Failure;
         status = reason;
         resultMessage = BallPuzzleLevelUiPresenter.CreateResultMessage(
-            ballTestController.LastTestDuration,
+            countdownRemaining,
             placedPieces.Count,
             targetPieceCount);
     }
@@ -1005,13 +1003,12 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
     private void CompleteLevel()
     {
         ballTestController.Finish();
-        BallPuzzleProgressStore.RegisterCompletedLevelTime(
-            SceneManager.GetActiveScene().name,
-            ballTestController.LastTestDuration);
+        countdownRunning = false;
+        BallPuzzleCountdownSession.SetRemaining(countdownRemaining);
         state = LevelState.Success;
         status = "Prize collected! Level complete.";
         resultMessage = BallPuzzleLevelUiPresenter.CreateResultMessage(
-            ballTestController.LastTestDuration,
+            countdownRemaining,
             placedPieces.Count,
             targetPieceCount);
         prize.localScale = prizeInitialScale * 1.35f;
@@ -1020,7 +1017,7 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
 
     private void CompleteCircuitTest()
     {
-        if (placedPieces.Count >= targetPieceCount)
+        if (!requireAllPiecesForCompletion || AreAllPiecesUsed())
         {
             CompleteLevel();
             return;
@@ -1030,9 +1027,17 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         state = LevelState.ChallengeIncomplete;
         status = "Circuit complete, but use all " + targetPieceCount +
                  " pieces to finish the level.";
-        resultMessage = "CIRCUIT WORKS\nPIECES  " + placedPieces.Count +
+        resultMessage = "CIRCUIT WORKS\nPIECES USED  " + placedPieces.Count +
                         " / " + targetPieceCount +
+                        "\nTIME LEFT  " + countdownRemaining.ToString("0.0") + " s" +
                         "\nUSE ALL PIECES TO WIN";
+    }
+
+    private bool AreAllPiecesUsed()
+    {
+        return straightRemaining == 0 &&
+               curveRemaining == 0 &&
+               halfStraightRemaining == 0;
     }
 
     private void RetryTest()
@@ -1051,8 +1056,48 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         status = "Adjust the layout and press PLAY again.";
     }
 
+    private void HandleResultAction()
+    {
+        if (countdownExpired)
+        {
+            RestartCurrentLevel();
+            return;
+        }
+
+        if (state != LevelState.Success || string.IsNullOrWhiteSpace(nextLevelScene))
+        {
+            ReturnToBuild();
+            return;
+        }
+
+        if (!Application.CanStreamedLevelBeLoaded(nextLevelScene))
+        {
+            Debug.LogError(
+                "Level transition: scene '" + nextLevelScene +
+                "' is not available in Build Settings.",
+                this);
+            return;
+        }
+
+        Time.timeScale = 1f;
+        SceneManager.LoadScene(nextLevelScene);
+    }
+
+    private void RestartCurrentLevel()
+    {
+        BallPuzzleCountdownSession.SetRemaining(levelEntryCountdownSeconds);
+        Time.timeScale = 1f;
+        SceneManager.LoadScene(SceneManager.GetActiveScene().name);
+    }
+
     private void ExitToMainMenu()
     {
+        if (countdownExpired)
+        {
+            BallPuzzleCountdownSession.SetRemaining(
+                levelEntryCountdownSeconds);
+        }
+
         Time.timeScale = 1f;
         SceneManager.LoadScene("MainMenu");
     }
@@ -1293,7 +1338,7 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
             cancelPlayButton.onClick.AddListener(HidePlayConfirmationDialog);
         }
         resetButton.onClick.AddListener(ResetLayout);
-        retryButton.onClick.AddListener(ReturnToBuild);
+        retryButton.onClick.AddListener(HandleResultAction);
         editButton.onClick.AddListener(ExitToMainMenu);
     }
 
@@ -1318,7 +1363,7 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
             cancelPlayButton.onClick.RemoveListener(HidePlayConfirmationDialog);
         }
         if (resetButton != null) resetButton.onClick.RemoveListener(ResetLayout);
-        if (retryButton != null) retryButton.onClick.RemoveListener(ReturnToBuild);
+        if (retryButton != null) retryButton.onClick.RemoveListener(HandleResultAction);
         if (editButton != null) editButton.onClick.RemoveListener(ExitToMainMenu);
     }
 
@@ -1399,9 +1444,11 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
             rotateYCounterClockwiseButton,
             placeButton,
             editButton,
+            retryButton,
             testingLabel,
             statusLabel,
             inventoryStatusLabel,
+            paletteSummaryLabel,
             resultTitleLabel,
             resultMessageLabel,
             straightPieceCard,
@@ -1430,6 +1477,8 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
             isShowingResult,
             state == LevelState.Success,
             state == LevelState.ChallengeIncomplete,
+            countdownExpired,
+            !string.IsNullOrWhiteSpace(nextLevelScene),
             selectedPieceType,
             pendingPiece != null,
             pendingPiece != null && pendingPiece.gameObject.activeSelf,
@@ -1442,8 +1491,73 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
             halfStraightRemaining,
             status,
             resultMessage,
+            countdownRemaining,
             ballTestController != null && ballTestController.HasTestDuration,
             displayedTestDuration));
+    }
+
+    private void InitializeCountdown()
+    {
+        if (!BallPuzzleCountdownSession.HasRemaining)
+        {
+            BallPuzzleCountdownSession.SetRemaining(initialCountdownSeconds);
+        }
+
+        countdownRemaining = BallPuzzleCountdownSession.Remaining;
+        levelEntryCountdownSeconds = countdownRemaining;
+        countdownRunning = false;
+        countdownExpired = false;
+    }
+
+    private void StartCountdown()
+    {
+        if (!countdownExpired && countdownRemaining > 0f)
+        {
+            countdownRunning = true;
+        }
+    }
+
+    private void StopCountdownWhenPlayBecomesAvailable()
+    {
+        if (state != LevelState.Build ||
+            pendingPiece != null ||
+            !HasCompleteAnchorAlignment())
+        {
+            return;
+        }
+
+        countdownRunning = false;
+        BallPuzzleCountdownSession.SetRemaining(countdownRemaining);
+    }
+
+    private void UpdateCountdown()
+    {
+        if (!countdownRunning || countdownExpired || state == LevelState.Success)
+        {
+            return;
+        }
+
+        countdownRemaining = Mathf.Max(
+            0f,
+            countdownRemaining - Time.deltaTime);
+        BallPuzzleCountdownSession.SetRemaining(countdownRemaining);
+        if (countdownRemaining <= 0f)
+        {
+            ExpireCountdown();
+        }
+    }
+
+    private void ExpireCountdown()
+    {
+        countdownRunning = false;
+        countdownExpired = true;
+        countdownRemaining = 0f;
+        BallPuzzleCountdownSession.SetRemaining(0f);
+        HidePlayConfirmationDialog();
+        ballTestController.Finish();
+        state = LevelState.Failure;
+        status = "Time is up.";
+        resultMessage = "TIME LEFT  0.0 s\nRETRY THE LEVEL";
     }
 
 #if UNITY_EDITOR
@@ -1524,4 +1638,31 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         placeButton = newPlaceButton;
     }
 #endif
+}
+
+internal static class BallPuzzleCountdownSession
+{
+    private static bool hasRemaining;
+    private static float remaining;
+
+    public static bool HasRemaining => hasRemaining;
+    public static float Remaining => Mathf.Max(0f, remaining);
+
+    public static void SetRemaining(float seconds)
+    {
+        remaining = Mathf.Max(0f, seconds);
+        hasRemaining = true;
+    }
+
+    public static void Reset()
+    {
+        remaining = 0f;
+        hasRemaining = false;
+    }
+
+    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+    private static void ResetOnPlaySessionStart()
+    {
+        Reset();
+    }
 }

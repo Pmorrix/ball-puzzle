@@ -11,7 +11,7 @@ public sealed class MainMenuController : MonoBehaviour
     private const string LastPlayedLevelKey = "BallPuzzleLastPlayedLevel";
 
     [Header("Scene")]
-    [SerializeField] private string firstLevelScene = "Level01video";
+    [SerializeField] private string firstLevelScene = "Level01";
 
     [Header("UI")]
     [SerializeField] private Button playButton;
@@ -112,6 +112,7 @@ public sealed class MainMenuController : MonoBehaviour
 
     private void Play()
     {
+        BallPuzzleLevelController.ResetCountdownSession();
         PlayerPrefs.DeleteAll();
         PlayerPrefs.Save();
         StartCoroutine(PlayAchievementAndLoad(firstLevelScene));
