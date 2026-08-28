@@ -240,7 +240,7 @@ GameObject:
   - component: {fileID: 224487709239906298}
   - component: {fileID: 114900000000000001}
   m_Layer: 5
-  m_Name: SpeechBubble
+  m_Name: Level01SpeechBubble
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -258,8 +258,8 @@ RectTransform:
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children:
-  - {fileID: 224178196498936584}
   - {fileID: 224943260408291032}
+  - {fileID: 224178196498936584}
   - {fileID: 224290981179216180}
   - {fileID: 224407572863721118}
   m_Father: {fileID: 0}
@@ -279,10 +279,10 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 9b7bb3b958c54ca0a2a609f58da3d331, type: 3}
-  m_Name:
+  m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::LetterByLetterText
   targetText: {fileID: 114593311468931712}
-  secondsPerLetter: 0.05
+  secondsPerLetter: 0.1
   playOnEnable: 1
 --- !u!1 &1728455121514662
 GameObject:

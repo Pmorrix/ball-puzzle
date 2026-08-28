@@ -65,6 +65,9 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
     [SerializeField] private float buildSurfaceHeight;
     [SerializeField, Min(1f)] private float rotationStep = 45f;
 
+    [Header("Input")]
+    [SerializeField] private InputActionAsset inputActions;
+
     [Header("Ball test")]
     [SerializeField, Min(0.1f)] private float launchSpeed = 7.5f;
     [SerializeField, Min(0.25f)] private float prizeCollectionDistance = 1.05f;
@@ -155,10 +158,101 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
     private float countdownRemaining;
     private bool countdownRunning;
     private bool countdownExpired;
+    private InputActionMap gameplayInputMap;
+    private InputAction pointerPositionAction;
+    private InputAction primaryAction;
+    private InputAction cancelAction;
+    private bool inputMapEnabledByController;
+    private bool ownsGameplayInputMap;
 
     public static void ResetCountdownSession()
     {
         BallPuzzleCountdownSession.Reset();
+    }
+
+    private void ConfigureInputActions()
+    {
+        if (gameplayInputMap != null &&
+            pointerPositionAction != null &&
+            primaryAction != null &&
+            cancelAction != null)
+        {
+            return;
+        }
+
+        gameplayInputMap = inputActions != null
+            ? inputActions.FindActionMap("Gameplay", false)
+            : null;
+        pointerPositionAction = gameplayInputMap?.FindAction("Point", false);
+        primaryAction = gameplayInputMap?.FindAction("PrimaryAction", false);
+        cancelAction = gameplayInputMap?.FindAction("Cancel", false);
+
+        if (pointerPositionAction != null &&
+            primaryAction != null &&
+            cancelAction != null)
+        {
+            return;
+        }
+
+        gameplayInputMap = new InputActionMap("Gameplay");
+        pointerPositionAction = gameplayInputMap.AddAction(
+            "Point",
+            InputActionType.PassThrough,
+            "<Pointer>/position",
+            expectedControlLayout: "Vector2");
+        primaryAction = gameplayInputMap.AddAction(
+            "PrimaryAction",
+            InputActionType.Button,
+            "<Pointer>/press",
+            expectedControlLayout: "Button");
+        cancelAction = gameplayInputMap.AddAction(
+            "Cancel",
+            InputActionType.Button,
+            "<Mouse>/rightButton",
+            expectedControlLayout: "Button");
+        ownsGameplayInputMap = true;
+    }
+
+    private bool TryGetPointerPosition(out Vector2 pointerPosition)
+    {
+        pointerPosition = Vector2.zero;
+        if (pointerPositionAction == null ||
+            !pointerPositionAction.enabled ||
+            pointerPositionAction.controls.Count == 0)
+        {
+            return false;
+        }
+
+        pointerPosition = pointerPositionAction.ReadValue<Vector2>();
+        return true;
+    }
+
+    private bool IsPrimaryActionPressed()
+    {
+        return primaryAction != null &&
+               primaryAction.enabled &&
+               primaryAction.IsPressed();
+    }
+
+    private bool WasPrimaryActionPressedThisFrame()
+    {
+        return primaryAction != null &&
+               primaryAction.enabled &&
+               primaryAction.WasPressedThisFrame();
+    }
+
+    private bool WasPrimaryActionReleasedThisFrame()
+    {
+        return primaryAction != null &&
+               primaryAction.enabled &&
+               primaryAction.WasReleasedThisFrame();
+    }
+
+    private bool WasCancelPressedThisFrame()
+    {
+        return cancelAction != null &&
+               cancelAction.enabled &&
+               cancelAction.WasPressedThisFrame();
     }
 
     private void Awake()
@@ -244,10 +338,34 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         }
     }
 
+    private void OnEnable()
+    {
+        ConfigureInputActions();
+        inputMapEnabledByController = !gameplayInputMap.enabled;
+        if (inputMapEnabledByController)
+        {
+            gameplayInputMap.Enable();
+        }
+    }
+
+    private void OnDisable()
+    {
+        if (inputMapEnabledByController)
+        {
+            gameplayInputMap?.Disable();
+        }
+
+        inputMapEnabledByController = false;
+    }
+
     private void OnDestroy()
     {
         UnwireUiEvents();
         placementIndicator?.Dispose();
+        if (ownsGameplayInputMap)
+        {
+            gameplayInputMap?.Dispose();
+        }
     }
 
     private static DraggableUIPanel EnablePanelDragging(GameObject panel)
@@ -292,17 +410,15 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
 
     private void UpdateBuildMode()
     {
-        Mouse mouse = Mouse.current;
-        if (mouse == null)
+        if (!TryGetPointerPosition(out Vector2 pointerPosition))
         {
             return;
         }
 
         bool pointerOverUi =
             EventSystem.current != null && EventSystem.current.IsPointerOverGameObject();
-        Vector2 pointerPosition = mouse.position.ReadValue();
 
-        if (pendingPiece != null && mouse.rightButton.wasPressedThisFrame)
+        if (pendingPiece != null && WasCancelPressedThisFrame())
         {
             CancelPendingPiece();
             return;
@@ -315,7 +431,7 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
 
         if (placementState == PlacementState.Dragging)
         {
-            if (mouse.leftButton.wasReleasedThisFrame)
+            if (WasPrimaryActionReleasedThisFrame())
             {
                 if (pointerOverUi)
                 {
@@ -331,7 +447,7 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
                 return;
             }
 
-            if (mouse.leftButton.isPressed && !pointerOverUi)
+            if (IsPrimaryActionPressed() && !pointerOverUi)
             {
                 UpdatePendingPiece(pointerPosition);
             }
@@ -345,7 +461,7 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
             pendingDragOffset = Vector3.zero;
             UpdatePendingPiece(pointerPosition);
 
-            if (mouse.leftButton.wasPressedThisFrame)
+            if (WasPrimaryActionPressedThisFrame())
             {
                 FinishPendingPieceDrag();
             }
@@ -357,7 +473,7 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
             return;
         }
 
-        if (pointerOverUi || !mouse.leftButton.wasPressedThisFrame)
+        if (pointerOverUi || !WasPrimaryActionPressedThisFrame())
         {
             return;
         }
@@ -372,7 +488,7 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         pendingDragOffset = dragOffset;
         placementState = PlacementState.Dragging;
         UpdatePendingPiece(pointerPosition);
-        status = "Drag the piece and release the left mouse button to set its position.";
+        status = "Drag the piece and release the primary button to set its position.";
     }
 
     private Vector3 ClampStructureTranslation(Vector3 translation)
@@ -673,11 +789,10 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         pendingPiece.name = prefab.DisplayName + " (pendiente)";
         pendingPiece.ClearTint();
 
-        Mouse mouse = Mouse.current;
-        if (mouse != null && mouse.leftButton.isPressed)
+        if (IsPrimaryActionPressed() &&
+            TryGetPointerPosition(out Vector2 pointerPosition))
         {
             placementState = PlacementState.Dragging;
-            Vector2 pointerPosition = mouse.position.ReadValue();
             Vector2 spawnPosition = sourceCard != null
                 ? sourceCard.GetRightSideScreenPosition(
                     pointerPosition.y,
@@ -688,7 +803,7 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
             {
                 MovePendingPieceFullyRightOf(spawnPosition);
             }
-            status = "Drag the piece and release the left mouse button to set its position.";
+            status = "Drag the piece and release the primary button to set its position.";
         }
         else
         {
@@ -708,11 +823,11 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
         EvaluatePendingPlacement();
     }
 
-    private void UpdatePendingPiece(Vector2 mousePosition)
+    private void UpdatePendingPiece(Vector2 pointerPosition)
     {
         if (!pendingPiecePositioner.TryPositionAtPointer(
                 pendingPiece,
-                mousePosition,
+                pointerPosition,
                 pendingDragOffset,
                 pendingRotationIndex))
         {
@@ -776,12 +891,12 @@ public sealed class BallPuzzleLevelController : MonoBehaviour
     }
 
     private bool TryGetPendingPieceDragOffset(
-        Vector2 mousePosition,
+        Vector2 pointerPosition,
         out Vector3 dragOffset)
     {
         return pendingPiecePositioner.TryGetDragOffset(
             pendingPiece,
-            mousePosition,
+            pointerPosition,
             out dragOffset);
     }
 

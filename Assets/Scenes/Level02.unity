@@ -1276,12 +1276,12 @@ MonoBehaviour:
   prize: {fileID: 1373940516}
   startAnchor: {fileID: 2062186711}
   availableStraights: 1
-  availableCurves: 2
+  availableCurves: 3
   availableHalfStraights: 2
   buildHalfSize: 16
   buildAreaCenter: {x: 0, y: 4}
-  targetPieceCount: 5
-  requireAllPiecesForCompletion: 0
+  targetPieceCount: 6
+  requireAllPiecesForCompletion: 1
   nextLevelScene: Level03
   targetTestDuration: 6
   initialCountdownSeconds: 180
@@ -1289,13 +1289,14 @@ MonoBehaviour:
   connectionReleaseAssistDistance: 0.75
   buildSurfaceHeight: 0
   rotationStep: 45
-  launchSpeed: 9
+  inputActions: {fileID: -944628639613478452, guid: 83c4f938bcae4d4ebc0cfb133608a359, type: 3}
+  launchSpeed: 12
   prizeCollectionDistance: 1.05
   fallHeight: -0.55
   maximumTestDuration: 18
   stoppedDuration: 2
   levelTitlePanel: {fileID: 112411532}
-  moveLevelTitleDuringTest: 1
+  moveLevelTitleDuringTest: 0
   testingLevelTitleAnchoredPosition: {x: -363, y: -835}
   buildControlsPanel: {fileID: 1158432420}
   buildActionsPanel: {fileID: 75048919}
@@ -15941,7 +15942,7 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_text: "\xD71"
+  m_text: "\xD73"
   m_isRightToLeft: 0
   m_fontAsset: {fileID: 11400000, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}
   m_sharedMaterial: {fileID: 2180264, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}

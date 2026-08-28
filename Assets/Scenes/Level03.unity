@@ -1289,6 +1289,7 @@ MonoBehaviour:
   connectionReleaseAssistDistance: 0.75
   buildSurfaceHeight: 0
   rotationStep: 45
+  inputActions: {fileID: -944628639613478452, guid: 83c4f938bcae4d4ebc0cfb133608a359, type: 3}
   launchSpeed: 9
   prizeCollectionDistance: 1.05
   fallHeight: -0.55
