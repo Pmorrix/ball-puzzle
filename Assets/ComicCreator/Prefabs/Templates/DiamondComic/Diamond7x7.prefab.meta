@@ -1,0 +1,15 @@
+fileFormatVersion: 2
+guid: 8bf444fb0489a244bb739df496eca3aa
+NativeFormatImporter:
+  externalObjects: {}
+  mainObjectFileID: 100100000
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 156749
+  packageName: Interactive Comic Maker
+  packageVersion: 1.3
+  assetPath: Assets/ComicCreator/Prefabs/Templates/DiamondComic/Diamond7x7.prefab
+  uploadId: 408750

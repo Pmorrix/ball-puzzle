@@ -105,3 +105,10 @@ InitTestScene*.unity*
 
 # Auto-generated scenes by play mode tests
 /[Aa]ssets/[Ii]nit[Tt]est[Ss]cene*.unity*
+
+# Local scene recovery snapshots created after an unclean Unity shutdown.
+/[Aa]ssets/_Recovery/
+/[Aa]ssets/_Recovery.meta
+
+# Unity source mesh used by the Level01video goal flag.
+!/Assets/Art/Level01/Meshes/GoalFlag.obj

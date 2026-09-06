@@ -1,0 +1,15 @@
+fileFormatVersion: 2
+guid: 0bc3b9cc4a381594e859dbcfdaa1ee18
+NativeFormatImporter:
+  externalObjects: {}
+  mainObjectFileID: 100100000
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 156749
+  packageName: Interactive Comic Maker
+  packageVersion: 1.3
+  assetPath: Assets/ComicCreator/Prefabs/ComicFrames/ComicFrameVertical.prefab
+  uploadId: 408750

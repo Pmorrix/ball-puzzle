@@ -1,0 +1,15 @@
+fileFormatVersion: 2
+guid: a4ddaed23a5165e44b3a62f4da063ac9
+NativeFormatImporter:
+  externalObjects: {}
+  mainObjectFileID: 100100000
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 156749
+  packageName: Interactive Comic Maker
+  packageVersion: 1.3
+  assetPath: Assets/ComicCreator/Prefabs/ComicPages/PageBranching.prefab
+  uploadId: 408750

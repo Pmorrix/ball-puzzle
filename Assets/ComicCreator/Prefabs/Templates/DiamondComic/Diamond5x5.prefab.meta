@@ -1,0 +1,15 @@
+fileFormatVersion: 2
+guid: 26b14e07292e4ef4cb35d453f7c4ceb5
+NativeFormatImporter:
+  externalObjects: {}
+  mainObjectFileID: 100100000
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 156749
+  packageName: Interactive Comic Maker
+  packageVersion: 1.3
+  assetPath: Assets/ComicCreator/Prefabs/Templates/DiamondComic/Diamond5x5.prefab
+  uploadId: 408750

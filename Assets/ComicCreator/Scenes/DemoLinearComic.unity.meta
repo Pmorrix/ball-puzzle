@@ -1,0 +1,14 @@
+fileFormatVersion: 2
+guid: 379c2712fdf370640ae20419bb959280
+DefaultImporter:
+  externalObjects: {}
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 156749
+  packageName: Interactive Comic Maker
+  packageVersion: 1.3
+  assetPath: Assets/ComicCreator/Scenes/DemoLinearComic.unity
+  uploadId: 408750

@@ -1,0 +1,14 @@
+fileFormatVersion: 2
+guid: f21928fad533f4446b182d78f837d59b
+DefaultImporter:
+  externalObjects: {}
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 156749
+  packageName: Interactive Comic Maker
+  packageVersion: 1.3
+  assetPath: Assets/ComicCreator/Scenes/DemoDiamondComic.unity
+  uploadId: 408750
