@@ -1,0 +1,23 @@
+MONTAJE FIJO. Prefabs reales, escala original. Sin prueba de gameplay.
+1: 01 - Curve45RightPiece; root (6.156280, 1.000000, -8.070803); yaw 225; scale (1.00, 1.00, 1.00); inside=True
+2: 02 - Curve45RightPiece; root (7.620746, 1.000000, -4.535269); yaw 180; scale (1.00, 1.00, 1.00); inside=True
+3: Bonus Target 1; root (7.620746, 1.000000, -4.535269); yaw -5,008956E-06; scale (1.00, 1.00, 1.00); inside=True
+4: 04 - Curve45RightPiece; root (2.620745, 1.000000, 0.464731); yaw -90,00001; scale (1.00, 1.00, 1.00); inside=True
+5: 05 - Curve45RightPiece; root (-0.914789, 1.000000, 1.929196); yaw -45; scale (1.00, 1.00, 1.00); inside=True
+6: 06 - Curve45RightPiece; root (-2.379255, 1.000000, 5.464730); yaw -5,008956E-06; scale (1.00, 1.00, 1.00); inside=True
+7: 07 - Curve45RightPiece; root (-0.914789, 1.000000, 9.000264); yaw 45; scale (1.00, 1.00, 1.00); inside=True
+8: 08 - Curve45RightPiece; root (2.620745, 1.000000, 10.464730); yaw 89,99999; scale (1.00, 1.00, 1.00); inside=True
+9: 09 - Curve45RightPiece; root (9.691813, 1.000000, 7.535799); yaw 270; scale (1.00, 1.00, 1.00); inside=True
+10: Bonus Target 2; root (9.691813, 1.000000, 7.535799); yaw 89,99999; scale (1.00, 1.00, 1.00); inside=True
+11: 11 - HalfStraightPiece; root (7.691812, 1.000000, 17.535800); yaw -90,00001; scale (1.00, 1.00, 1.00); inside=True
+12: 12 - Curve45RightPiece; root (2.156278, 1.000000, 16.071330); yaw 45; scale (1.00, 1.00, 1.00); inside=True
+13: 13 - HalfStraightPiece; root (0.742064, 1.000000, 14.657120); yaw -135; scale (1.00, 1.00, 1.00); inside=True
+14: Bonus Target 3; root (-3.500576, 1.000000, 10.414480); yaw -135; scale (1.00, 1.00, 1.00); inside=True
+15: 15 - StraightPiece; root (-9.157430, 1.000000, 4.757623); yaw -135; scale (1.00, 1.00, 1.00); inside=True
+16: 16 - Curve45RightPiece; root (-13.450320, 1.000000, -1.606339); yaw -4,829673E-06; scale (1.00, 1.00, 1.00); inside=True
+17: 17 - Curve45RightPiece; root (-11.985860, 1.000000, -5.141872); yaw -45; scale (1.00, 1.00, 1.00); inside=True
+18: 18 - Curve45RightPiece; root (-8.450322, 1.000000, -6.606338); yaw -90,00001; scale (1.00, 1.00, 1.00); inside=True
+19: 19 - Curve45RightPiece; root (-8.450322, 1.000000, -6.606338); yaw -270; scale (1.00, 1.00, 1.00); inside=True
+20: 20 - Curve45RightPiece; root (-1.379254, 1.000000, -9.535270); yaw -90,00001; scale (1.00, 1.00, 1.00); inside=True
+21: 21 - HalfStraightPiece; root (0.620746, 1.000000, -9.535270); yaw -270; scale (1.00, 1.00, 1.00); inside=True
+PASS: 21 piezas; cierre y todas las uniones; max gap=0,000002132; dentro del tablero; 3 especiales deshabilitadas para giro. Backup: BonusSolutions/Bonus01Test.before-fixed-20260906-181937.unity

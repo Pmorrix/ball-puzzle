@@ -5,6 +5,7 @@ public static class BallPuzzleProgressStore
     private const string LastPlayedLevelKey = "BallPuzzleLastPlayedLevel";
     private const string TotalCompletionTimeKey = "BallPuzzleTotalCompletionTime";
     private const string LevelCompletionTimeKeyPrefix = "BallPuzzleCompletionTime.";
+    private const string UnlockedPieceKeyPrefix = "BallPuzzleUnlockedPiece.";
 
     public static void RememberCurrentLevel(string sceneName)
     {
@@ -52,6 +53,28 @@ public static class BallPuzzleProgressStore
             TotalCompletionTimeKey,
             Mathf.Max(0f, totalTime - previousLevelTime + completionTime));
         PlayerPrefs.Save();
+    }
+
+    public static void UnlockPiece(CircuitPieceType pieceType)
+    {
+        if (pieceType == CircuitPieceType.Start)
+        {
+            return;
+        }
+
+        PlayerPrefs.SetInt(GetUnlockedPieceKey(pieceType), 1);
+        PlayerPrefs.Save();
+    }
+
+    public static bool IsPieceUnlocked(CircuitPieceType pieceType)
+    {
+        return pieceType != CircuitPieceType.Start &&
+               PlayerPrefs.GetInt(GetUnlockedPieceKey(pieceType), 0) != 0;
+    }
+
+    private static string GetUnlockedPieceKey(CircuitPieceType pieceType)
+    {
+        return UnlockedPieceKeyPrefix + pieceType;
     }
 
     private static float GetTotalCompletionTime()

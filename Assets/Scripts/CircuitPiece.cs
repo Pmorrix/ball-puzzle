@@ -6,7 +6,8 @@ public enum CircuitPieceType
     Straight,
     Curve45Right,
     HalfStraight,
-    Curve90
+    Curve90,
+    Curve180
 }
 
 [DisallowMultipleComponent]

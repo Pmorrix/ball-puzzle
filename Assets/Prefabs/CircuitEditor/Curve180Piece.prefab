@@ -184,6 +184,7 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 2252830586857748232}
+  - component: {fileID: 1149000000000000001}
   m_Layer: 0
   m_Name: Curve180Piece
   m_TagString: Untagged
@@ -218,6 +219,34 @@ Transform:
   - {fileID: 603754679496134088}
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &1149000000000000001
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 3307938585173145097}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: bfc1b44fba33d7e40878853dd97877ff, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: Assembly-CSharp::CircuitPiece
+  pieceType: 5
+  displayName: Curva 180
+  connectors:
+  - {fileID: 8210464489533612499}
+  - {fileID: 603754679496134088}
+  ballPathPoints:
+  - {x: 0, y: 1.05, z: 0}
+  - {x: -0.3806023, y: 1.05, z: 1.9134172}
+  - {x: -1.4644661, y: 1.05, z: 3.535534}
+  - {x: -3.0865828, y: 1.05, z: 4.6193976}
+  - {x: -5, y: 1.05, z: 5}
+  - {x: -6.9134173, y: 1.05, z: 4.6193976}
+  - {x: -8.535534, y: 1.05, z: 3.535534}
+  - {x: -9.619398, y: 1.05, z: 1.9134172}
+  - {x: -10, y: 1.05, z: 0}
+  incomingConnectorIndex: 0
 --- !u!1 &3722992792090936888
 GameObject:
   m_ObjectHideFlags: 0

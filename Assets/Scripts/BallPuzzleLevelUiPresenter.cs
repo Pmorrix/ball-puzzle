@@ -13,6 +13,8 @@ internal readonly struct BallPuzzleLevelUiState
         bool isChallengeIncomplete,
         bool isCountdownExpired,
         bool hasNextLevel,
+        bool isBonusChallenge,
+        string bonusProgressText,
         CircuitPieceType? selectedPieceType,
         bool hasPendingPiece,
         bool pendingPieceIsActive,
@@ -36,6 +38,8 @@ internal readonly struct BallPuzzleLevelUiState
         IsChallengeIncomplete = isChallengeIncomplete;
         IsCountdownExpired = isCountdownExpired;
         HasNextLevel = hasNextLevel;
+        IsBonusChallenge = isBonusChallenge;
+        BonusProgressText = bonusProgressText;
         SelectedPieceType = selectedPieceType;
         HasPendingPiece = hasPendingPiece;
         PendingPieceIsActive = pendingPieceIsActive;
@@ -60,6 +64,8 @@ internal readonly struct BallPuzzleLevelUiState
     public bool IsChallengeIncomplete { get; }
     public bool IsCountdownExpired { get; }
     public bool HasNextLevel { get; }
+    public bool IsBonusChallenge { get; }
+    public string BonusProgressText { get; }
     public CircuitPieceType? SelectedPieceType { get; }
     public bool HasPendingPiece { get; }
     public bool PendingPieceIsActive { get; }
@@ -99,6 +105,7 @@ internal sealed class BallPuzzleLevelUiPresenter
     private readonly Button rotateYCounterClockwiseButton;
     private readonly Button placeButton;
     private readonly Button editButton;
+    private readonly Button resultActionButton;
     private readonly TMP_Text resultActionButtonLabel;
     private readonly TMP_Text testButtonLabel;
     private readonly TMP_Text testingLabel;
@@ -173,6 +180,7 @@ internal sealed class BallPuzzleLevelUiPresenter
         this.rotateYCounterClockwiseButton = rotateYCounterClockwiseButton;
         this.placeButton = placeButton;
         this.editButton = editButton;
+        this.resultActionButton = resultActionButton;
         resultActionButtonLabel = resultActionButton != null
             ? resultActionButton.GetComponentInChildren<TMP_Text>(true)
             : null;
@@ -334,7 +342,9 @@ internal sealed class BallPuzzleLevelUiPresenter
             return;
         }
 
-        testingLabel.text = "TEST  " + state.DisplayedTestDuration.ToString("0.0") + " s";
+        testingLabel.text = state.IsBonusChallenge
+            ? "BONUS RUN"
+            : "TEST  " + state.DisplayedTestDuration.ToString("0.0") + " s";
     }
 
     private void RefreshResult(BallPuzzleLevelUiState state)
@@ -349,16 +359,25 @@ internal sealed class BallPuzzleLevelUiPresenter
             : state.IsChallengeIncomplete
                 ? "TRY AGAIN"
                 : "FAIL";
-        resultTitleLabel.text = string.IsNullOrEmpty(levelTitleText)
-            ? resultText
-            : levelTitleText + " " + resultText;
+        resultTitleLabel.text = state.IsBonusChallenge
+            ? "BONUS RESULT"
+            : string.IsNullOrEmpty(levelTitleText)
+                ? resultText
+                : levelTitleText + " " + resultText;
         resultMessageLabel.text = string.IsNullOrEmpty(state.ResultMessage)
             ? state.Status
             : state.ResultMessage;
         editButton.gameObject.SetActive(!state.IsSuccess);
+        if (resultActionButton != null)
+        {
+            resultActionButton.interactable =
+                !state.IsBonusChallenge || state.HasNextLevel;
+        }
         if (resultActionButtonLabel != null)
         {
-            resultActionButtonLabel.text = state.IsCountdownExpired
+            resultActionButtonLabel.text = state.IsBonusChallenge
+                ? "CONTINUE"
+                : state.IsCountdownExpired
                 ? "RETRY"
                 : state.IsSuccess && state.HasNextLevel
                     ? "NEXT"
@@ -448,6 +467,11 @@ internal sealed class BallPuzzleLevelUiPresenter
 
     private static string GetCountdownStatus(BallPuzzleLevelUiState state)
     {
+        if (state.IsBonusChallenge)
+        {
+            return state.BonusProgressText;
+        }
+
         return "TIME LEFT: " + FormatTime(state.CountdownRemaining);
     }
 
